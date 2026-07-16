@@ -106,7 +106,55 @@ function convoyRosterLines(registrations: Registration[]) {
     .map((r) => `• ${r.user!.full_name ?? r.user!.username} (${rankTitleFor(r.user!.current_rank)})`);
 }
 
-function RegistrationRow({ registration }: { registration: Registration }) {
+/** null when there's no mobile number on file, or it strips down to nothing
+ * — a broken wa.me link with an empty number is worse than no button. */
+function whatsAppDirectLink(user: RegistrationUser, driveTitle: string): string | null {
+  const digits = (user.mobile_number ?? "").replace(/[^\d+]/g, "").replace(/^\+/, "");
+  if (!digits) return null;
+
+  const name = user.full_name ?? user.username;
+  const message =
+    `Hey ${name}! Bryan here from COMPASS. Glad to have you registered for the ` +
+    `'${driveTitle}' drive. Just coordinating logistics—are you all set with your ` +
+    `deflation gear and radio? 🏜️`;
+
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
+function WhatsAppQuickAction({
+  user,
+  driveTitle,
+}: {
+  user: RegistrationUser;
+  driveTitle: string;
+}) {
+  const link = whatsAppDirectLink(user, driveTitle);
+  if (!link) return null;
+
+  const name = user.full_name ?? user.username;
+  return (
+    <a
+      href={link}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`Message ${name} on WhatsApp`}
+      aria-label={`Message ${name} on WhatsApp`}
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-forest/70 transition-colors hover:bg-forest/10 hover:text-forest"
+    >
+      <MessageCircle className="h-3.5 w-3.5" />
+    </a>
+  );
+}
+
+function RegistrationRow({
+  registration,
+  isSuperUser,
+  driveTitle,
+}: {
+  registration: Registration;
+  isSuperUser: boolean;
+  driveTitle: string;
+}) {
   const { user } = registration;
   const isMitCandidate = user?.current_rank === 4 && user.is_mit;
   return (
@@ -120,6 +168,9 @@ function RegistrationRow({ registration }: { registration: Registration }) {
       <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">
         {user ? formatAttendeeLine(user) : "Member"}
       </span>
+      {isSuperUser && user && (
+        <WhatsAppQuickAction user={user} driveTitle={driveTitle} />
+      )}
       {isMitCandidate && (
         <span className="shrink-0 rounded-full bg-forest/10 px-2 py-0.5 text-[10px] font-bold tracking-wide text-forest uppercase">
           MIT
@@ -148,9 +199,13 @@ function RegistrationRow({ registration }: { registration: Registration }) {
 function SlotRow({
   index,
   registration,
+  isSuperUser,
+  driveTitle,
 }: {
   index: number;
   registration: Registration | undefined;
+  isSuperUser: boolean;
+  driveTitle: string;
 }) {
   return (
     <li className="flex items-center gap-3 rounded-lg border border-sand px-3 py-2">
@@ -168,6 +223,9 @@ function SlotRow({
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">
             {formatAttendeeLine(registration.user)}
           </span>
+          {isSuperUser && (
+            <WhatsAppQuickAction user={registration.user} driveTitle={driveTitle} />
+          )}
           {registration.joining_camp && (
             <span
               title="Joining for camping"
@@ -221,12 +279,17 @@ export default async function DriveDetailPage({
   let userRank: number | null = null;
   let userIsMit = false;
   let isMarshal = false;
+  // A Super User is a narrower, elevated tier above a standard Marshal —
+  // either an explicit admin flag, or a future rank above the current
+  // ceiling of 5 (none exist yet, so that half is forward-compatible dead
+  // logic until a higher rank tier is introduced).
+  let isSuperUser = false;
   let myRegistration: { role: RegistrationRole } | null = null;
   if (user) {
     const [{ data: profile }, { data: existing }] = await Promise.all([
       supabase
         .from("profiles")
-        .select("current_rank, is_marshal, is_mit")
+        .select("current_rank, is_marshal, is_mit, is_admin")
         .eq("id", user.id)
         .single(),
       supabase
@@ -239,6 +302,7 @@ export default async function DriveDetailPage({
     userRank = profile?.current_rank ?? null;
     userIsMit = profile?.is_mit ?? false;
     isMarshal = profile?.is_marshal ?? false;
+    isSuperUser = (profile?.is_admin ?? false) || (profile?.current_rank ?? 0) > 5;
     myRegistration = existing ?? null;
   }
 
@@ -276,20 +340,6 @@ export default async function DriveDetailPage({
     targetRank: drive.target_rank,
     hasSupervisingMarshal,
   });
-
-  const whatsappRosterText = [
-    `${drive.title} (${drive.drive_id_code}) — ${formatDate(drive.drive_date)}`,
-    `Roster (${allRegistrants.length}):`,
-    ...allRegistrants
-      .filter((r) => r.user)
-      .map((r) => {
-        const u = r.user!;
-        const name = u.full_name ?? u.username;
-        const phone = u.mobile_number ? ` — ${u.mobile_number}` : " — no mobile number on file";
-        return `${name} (${r.role})${phone}`;
-      }),
-  ].join("\n");
-  const whatsappLink = `https://wa.me/?text=${encodeURIComponent(whatsappRosterText)}`;
 
   // Empty role groups are omitted entirely (no dangling "SUPPORTS" header
   // with nothing under it), and only actual registrants appear — the open
@@ -528,7 +578,12 @@ export default async function DriveDetailPage({
             </h3>
             <ul className="flex flex-col gap-2">
               {leads.map((r) => (
-                <RegistrationRow key={r.id} registration={r} />
+                <RegistrationRow
+                  key={r.id}
+                  registration={r}
+                  isSuperUser={isSuperUser}
+                  driveTitle={drive.title}
+                />
               ))}
             </ul>
           </div>
@@ -541,7 +596,12 @@ export default async function DriveDetailPage({
             </h3>
             <ul className="flex flex-col gap-2">
               {supports.map((r) => (
-                <RegistrationRow key={r.id} registration={r} />
+                <RegistrationRow
+                  key={r.id}
+                  registration={r}
+                  isSuperUser={isSuperUser}
+                  driveTitle={drive.title}
+                />
               ))}
             </ul>
           </div>
@@ -553,7 +613,13 @@ export default async function DriveDetailPage({
           </h3>
           <ul className="flex flex-col gap-2">
             {Array.from({ length: slotCount }).map((_, i) => (
-              <SlotRow key={i} index={i} registration={drivers[i]} />
+              <SlotRow
+                key={i}
+                index={i}
+                registration={drivers[i]}
+                isSuperUser={isSuperUser}
+                driveTitle={drive.title}
+              />
             ))}
           </ul>
         </div>
@@ -653,30 +719,14 @@ export default async function DriveDetailPage({
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-charcoal-light/80">
-              Compiles every registered participant&apos;s name and mobile number into a
-              pre-filled WhatsApp message — pick a contact (or paste it into a new group) to
-              kick off this drive&apos;s temporary group chat.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <a
-                href={whatsappLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex w-fit items-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:bg-forest-dark"
-              >
-                <MessageCircle className="h-4 w-4" />
-                Create WhatsApp TempGC
-              </a>
-              <Link
-                href={`/drives/${drive.id}/edit`}
-                className="flex w-fit items-center gap-2 rounded-lg border border-forest/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-forest transition-colors hover:bg-forest/10"
-              >
-                <Settings className="h-4 w-4" />
-                Edit Drive
-              </Link>
-            </div>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href={`/drives/${drive.id}/edit`}
+              className="flex w-fit items-center gap-2 rounded-lg border border-forest/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-forest transition-colors hover:bg-forest/10"
+            >
+              <Settings className="h-4 w-4" />
+              Edit Drive
+            </Link>
           </div>
         </section>
       )}
