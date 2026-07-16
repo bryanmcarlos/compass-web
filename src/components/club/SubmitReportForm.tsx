@@ -159,7 +159,7 @@ export function SubmitReportForm({
       <button
         type="submit"
         disabled={pending}
-        className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:bg-forest-dark disabled:cursor-not-allowed disabled:opacity-70"
+        className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-70"
       >
         {pending ? (
           <LoaderCircle className="h-4 w-4 animate-spin" />

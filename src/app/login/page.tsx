@@ -64,7 +64,7 @@ export default function LoginPage() {
             onClick={() => setMode("login")}
             className={`flex-1 rounded-full px-4 py-2 transition-colors ${
               mode === "login"
-                ? "bg-forest text-off-white shadow-sm"
+                ? "bg-primary text-off-white shadow-sm"
                 : "text-charcoal-light/80 hover:text-charcoal"
             }`}
           >
@@ -75,7 +75,7 @@ export default function LoginPage() {
             onClick={() => setMode("signup")}
             className={`flex-1 rounded-full px-4 py-2 transition-colors ${
               mode === "signup"
-                ? "bg-forest text-off-white shadow-sm"
+                ? "bg-primary text-off-white shadow-sm"
                 : "text-charcoal-light/80 hover:text-charcoal"
             }`}
           >
@@ -138,7 +138,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={pending}
-            className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:bg-forest-dark disabled:cursor-not-allowed disabled:opacity-70"
+            className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {pending ? (
               <LoaderCircle className="h-4 w-4 animate-spin" />

@@ -79,8 +79,8 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
                   lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5 lg:text-sm lg:font-medium
                   ${
                     isActive
-                      ? "text-forest lg:bg-sand-light"
-                      : "text-charcoal-light/70 hover:text-forest lg:hover:bg-sand-light"
+                      ? "text-primary lg:bg-sand-light"
+                      : "text-charcoal-light/70 hover:text-primary lg:hover:bg-sand-light"
                   }
                 `}
               >

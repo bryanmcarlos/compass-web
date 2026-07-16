@@ -139,7 +139,7 @@ export function AdminSettingsForm({
       <button
         type="submit"
         disabled={pending}
-        className="flex items-center justify-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:bg-forest-dark disabled:cursor-not-allowed disabled:opacity-70"
+        className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-70"
       >
         {pending ? (
           <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -182,7 +182,7 @@ function ImageUploadField({
           </div>
         )}
       </div>
-      <label className="flex w-fit cursor-pointer items-center gap-1.5 rounded-lg border border-forest/40 bg-off-white px-3 py-2.5 text-sm font-semibold text-forest transition-colors hover:bg-forest/10">
+      <label className="flex w-fit cursor-pointer items-center gap-1.5 rounded-lg border border-primary/40 bg-off-white px-3 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/10">
         <Upload className="h-4 w-4" />
         {preview ? "Change Image" : "Upload Image"}
         <input

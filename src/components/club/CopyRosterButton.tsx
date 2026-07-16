@@ -33,7 +33,7 @@ export function CopyRosterButton({ text }: { text: string }) {
       <button
         type="button"
         onClick={handleCopy}
-        className="flex w-fit items-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:bg-forest-dark"
+        className="flex w-fit items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90"
       >
         {copied ? (
           <>
