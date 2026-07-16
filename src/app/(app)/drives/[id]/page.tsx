@@ -18,6 +18,7 @@ import {
   MessageCircle,
   Settings,
   Tent,
+  Megaphone,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import {
@@ -30,6 +31,7 @@ import { Avatar } from "@/components/club/Avatar";
 import { RankBadge } from "@/components/club/RankBadge";
 import { RegisterDriveForm } from "@/components/club/RegisterDriveForm";
 import { UnregisterButton } from "@/components/club/UnregisterButton";
+import { CopyRosterButton } from "@/components/club/CopyRosterButton";
 import { CLUB_CONFIG } from "@/lib/constants";
 import { formatDate, formatTime } from "@/lib/format";
 import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
@@ -89,6 +91,19 @@ function formatAttendeeLine(user: RegistrationUser) {
 
 function rankColorVarFor(rank: number | undefined) {
   return CLUB_CONFIG.ranks.find((r) => r.level === rank)?.colorVar;
+}
+
+function rankTitleFor(rank: number | undefined) {
+  return CLUB_CONFIG.ranks.find((r) => r.level === rank)?.title ?? "Member";
+}
+
+/** Skips registrations with no linked profile — never emits a blank bullet
+ * for an orphaned row, and the caller separately skips the whole section
+ * header when a role group is empty. */
+function convoyRosterLines(registrations: Registration[]) {
+  return registrations
+    .filter((r) => r.user)
+    .map((r) => `• ${r.user!.full_name ?? r.user!.username} (${rankTitleFor(r.user!.current_rank)})`);
 }
 
 function RegistrationRow({ registration }: { registration: Registration }) {
@@ -275,6 +290,31 @@ export default async function DriveDetailPage({
       }),
   ].join("\n");
   const whatsappLink = `https://wa.me/?text=${encodeURIComponent(whatsappRosterText)}`;
+
+  // Empty role groups are omitted entirely (no dangling "SUPPORTS" header
+  // with nothing under it), and only actual registrants appear — the open
+  // slots shown in the Signup Sheet UI never make it into this text.
+  const convoyRosterText = [
+    "🏜️ COMPASS CLUB CONVOY ROSTER 🏜️",
+    "",
+    `🧭 ${drive.title}`,
+    `📅 ${formatDate(drive.drive_date)}`,
+    `🎖️ Lead Marshal: ${
+      drive.lead_marshal
+        ? (drive.lead_marshal.full_name ?? drive.lead_marshal.username)
+        : "TBD"
+    }`,
+    ...(leads.length > 0 ? ["", "🛡️ LEAD", ...convoyRosterLines(leads)] : []),
+    ...(supports.length > 0
+      ? ["", "🔧 SUPPORTS", ...convoyRosterLines(supports)]
+      : []),
+    ...(drivers.length > 0
+      ? ["", "🚙 DRIVERS", ...convoyRosterLines(drivers)]
+      : []),
+  ].join("\n");
+
+  const broadcastMessage = `Hello COMPASS team, here is the official convoy list for our upcoming drive:\n\n${convoyRosterText}`;
+  const broadcastLink = `https://wa.me/?text=${encodeURIComponent(broadcastMessage)}`;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -587,33 +627,56 @@ export default async function DriveDetailPage({
       )}
 
       {isMarshal && (
-        <section className="flex flex-col gap-3 rounded-2xl border border-forest/30 bg-forest/5 p-5 shadow-sm sm:p-6">
+        <section className="flex flex-col gap-4 rounded-2xl border border-forest/30 bg-forest/5 p-5 shadow-sm sm:p-6">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
             <ShieldAlert className="h-4 w-4 text-forest" />
-            Marshal Panel
+            Marshal Logistics Control Panel
           </h2>
-          <p className="text-sm text-charcoal-light/80">
-            Compiles every registered participant&apos;s name and mobile number into a
-            pre-filled WhatsApp message — pick a contact (or paste it into a new group) to
-            kick off this drive&apos;s temporary group chat.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <a
-              href={whatsappLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex w-fit items-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:bg-forest-dark"
-            >
-              <MessageCircle className="h-4 w-4" />
-              Create WhatsApp TempGC
-            </a>
-            <Link
-              href={`/drives/${drive.id}/edit`}
-              className="flex w-fit items-center gap-2 rounded-lg border border-forest/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-forest transition-colors hover:bg-forest/10"
-            >
-              <Settings className="h-4 w-4" />
-              Edit Drive
-            </Link>
+
+          <div className="flex flex-col gap-2 border-b border-forest/20 pb-4">
+            <p className="text-sm text-charcoal-light/80">
+              Copy a clean, emoji-formatted convoy roster to paste anywhere,
+              or broadcast it straight to WhatsApp with a ready-made
+              announcement.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <CopyRosterButton text={convoyRosterText} />
+              <a
+                href={broadcastLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-fit items-center gap-2 rounded-lg border border-forest/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-forest transition-colors hover:bg-forest/10"
+              >
+                <Megaphone className="h-4 w-4" />
+                Broadcast Notice
+              </a>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-charcoal-light/80">
+              Compiles every registered participant&apos;s name and mobile number into a
+              pre-filled WhatsApp message — pick a contact (or paste it into a new group) to
+              kick off this drive&apos;s temporary group chat.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <a
+                href={whatsappLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-fit items-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:bg-forest-dark"
+              >
+                <MessageCircle className="h-4 w-4" />
+                Create WhatsApp TempGC
+              </a>
+              <Link
+                href={`/drives/${drive.id}/edit`}
+                className="flex w-fit items-center gap-2 rounded-lg border border-forest/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-forest transition-colors hover:bg-forest/10"
+              >
+                <Settings className="h-4 w-4" />
+                Edit Drive
+              </Link>
+            </div>
           </div>
         </section>
       )}
