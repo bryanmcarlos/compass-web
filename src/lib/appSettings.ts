@@ -6,7 +6,7 @@ export type AppSettings = {
   defaultDriveBannerUrl: string | null;
 };
 
-export const FALLBACK_PRIMARY_COLOR = "#E68A00";
+export const FALLBACK_PRIMARY_COLOR = "#FFBF2D";
 
 /** `app_settings` is a public, singleton, non-personalized row (readable by
  * anyone, writes gated separately by `is_admin` in the Server Action) — this
