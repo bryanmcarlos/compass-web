@@ -1,0 +1,229 @@
+import { redirect } from "next/navigation";
+import { TrendingUp, Lock, Award, CircleCheck, Circle } from "lucide-react";
+import { createClient } from "@/utils/supabase/server";
+import { ErrorState } from "@/components/club/StateMessage";
+import { AvatarUploadForm } from "@/components/club/AvatarUploadForm";
+import { RankBadge } from "@/components/club/RankBadge";
+import { RequestPromotionButton } from "@/components/club/RequestPromotionButton";
+import { EditProfileForm } from "@/components/club/EditProfileForm";
+import { CLUB_CONFIG, COMPASS_RANKS } from "@/lib/constants";
+
+export default async function ProfilePage() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login?error=Sign in to view your profile.");
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select(
+      "id, username, full_name, avatar_url, current_rank, mobile_number, car_details",
+    )
+    .eq("id", user.id)
+    .single();
+
+  if (profileError || !profile) {
+    return (
+      <div className="mx-auto w-full max-w-2xl">
+        <ErrorState message="Couldn't load your profile right now. Please try again shortly." />
+      </div>
+    );
+  }
+
+  const { data: approvedReportsData, error: countError } = await supabase
+    .from("trip_reports")
+    .select("id, drive:drives(must_skills_covered)")
+    .eq("author_id", profile.id)
+    .eq("is_approved", true)
+    .overrideTypes<
+      { id: string; drive: { must_skills_covered: string[] | null } | null }[],
+      { merge: false }
+    >();
+
+  const approvedReports = approvedReportsData ?? [];
+  const approvedDrives = approvedReports.length;
+
+  // Each approved trip report unlocks whatever curriculum skills its drive
+  // addressed, regardless of which rank tier that drive targeted — a marshal
+  // may cover a skill on any drive if the opportunity comes up.
+  const unlockedSkills = new Set<string>();
+  for (const report of approvedReports) {
+    for (const skill of report.drive?.must_skills_covered ?? []) {
+      unlockedSkills.add(skill);
+    }
+  }
+
+  const currentRank =
+    CLUB_CONFIG.ranks.find((r) => r.level === profile.current_rank) ??
+    CLUB_CONFIG.ranks[0];
+  const nextRank =
+    CLUB_CONFIG.ranks.find((r) => r.level === currentRank.level + 1) ?? null;
+
+  const curriculum = COMPASS_RANKS[currentRank.level as 1 | 2 | 3 | 4 | 5];
+  const mustSkills = curriculum?.mustSkills ?? [];
+  const skillsUnlockedCount = mustSkills.filter((s) =>
+    unlockedSkills.has(s),
+  ).length;
+  const isLeadTrack = curriculum?.requiredSupervisedLeads !== undefined;
+  const metricLabel = isLeadTrack ? "Supervised Leads" : "Approved Drives";
+
+  const threshold =
+    curriculum?.requiredDrives ??
+    curriculum?.requiredSupervisedLeads ??
+    CLUB_CONFIG.rules.requiredDrivesForPromotion;
+  const qualifies = nextRank !== null && approvedDrives >= threshold;
+  const progressPct = nextRank
+    ? Math.min((approvedDrives / threshold) * 100, 100)
+    : 100;
+
+  let hasPendingRequest = false;
+  if (nextRank) {
+    const { data: pendingRequest } = await supabase
+      .from("promotion_requests")
+      .select("id")
+      .eq("candidate_id", profile.id)
+      .eq("target_rank", nextRank.level)
+      .eq("status", "Pending")
+      .maybeSingle();
+    hasPendingRequest = Boolean(pendingRequest);
+  }
+
+  const displayName = profile.full_name ?? profile.username;
+  const remaining = Math.max(threshold - approvedDrives, 0);
+
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+      <section className="flex flex-col items-center gap-3 rounded-2xl border border-sand bg-off-white p-6 text-center shadow-sm sm:p-8">
+        <AvatarUploadForm name={displayName} avatarUrl={profile.avatar_url} />
+        <div className="flex flex-col items-center gap-1">
+          <h1 className="text-xl font-bold text-charcoal">{displayName}</h1>
+          <p className="text-sm text-charcoal-light/70">@{profile.username}</p>
+          <RankBadge
+            rank={currentRank.level}
+            className="mt-1 text-sm"
+            iconClassName="h-4 w-4"
+          />
+        </div>
+        <p className="max-w-sm text-sm text-charcoal-light/80">
+          {currentRank.description}
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-4 rounded-2xl border border-sand bg-off-white p-6 shadow-sm sm:p-8">
+        <header className="flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sand-light text-forest">
+            <TrendingUp className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold text-charcoal">
+              Progression
+            </h2>
+            <p className="text-sm text-charcoal-light/80">
+              {nextRank
+                ? `Approved trip reports toward ${nextRank.title}`
+                : "You've reached the top rank"}
+            </p>
+          </div>
+        </header>
+
+        {countError && (
+          <ErrorState message="Couldn't load your approved trip report count. Progress shown may be out of date." />
+        )}
+
+        {nextRank ? (
+          <>
+            <p className="text-sm font-semibold text-charcoal">
+              {metricLabel}: {Math.min(approvedDrives, threshold)}/{threshold}
+              {mustSkills.length > 0 && (
+                <>
+                  {" "}
+                  | Skills: {skillsUnlockedCount}/{mustSkills.length} Unlocked
+                </>
+              )}
+            </p>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+              <span className="font-medium text-charcoal">
+                {Math.min(approvedDrives, threshold)} / {threshold}{" "}
+                {metricLabel} to qualify for {nextRank.title} Examination
+              </span>
+            </div>
+            <div className="h-3 w-full rounded-full bg-sand-light">
+              <div
+                className="h-full rounded-full transition-[width] duration-300"
+                style={{
+                  width: `${progressPct}%`,
+                  backgroundColor: `var(${nextRank.colorVar})`,
+                }}
+              />
+            </div>
+
+            {mustSkills.length > 0 && (
+              <div className="flex flex-col gap-3 border-t border-sand pt-4">
+                <h3 className="text-sm font-semibold text-charcoal">
+                  {currentRank.title} Must Skills
+                </h3>
+                <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {mustSkills.map((skill) => {
+                    const done = unlockedSkills.has(skill);
+                    return (
+                      <li
+                        key={skill}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                          done
+                            ? "border-forest/30 bg-forest/5 text-forest-dark"
+                            : "border-sand bg-sand-light text-charcoal-light/70"
+                        }`}
+                      >
+                        {done ? (
+                          <CircleCheck className="h-4 w-4 shrink-0 text-forest" />
+                        ) : (
+                          <Circle className="h-4 w-4 shrink-0 text-charcoal-light/40" />
+                        )}
+                        {skill}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {qualifies ? (
+              <RequestPromotionButton
+                targetRank={nextRank.level}
+                targetRankTitle={nextRank.title}
+                alreadyPending={hasPendingRequest}
+              />
+            ) : (
+              <div className="flex items-start gap-2 rounded-lg bg-sand-light px-3 py-2.5 text-sm text-charcoal-light/90">
+                <Lock className="mt-0.5 h-4 w-4 shrink-0 text-charcoal-light/60" />
+                <span>
+                  Submit {remaining} more approved trip report
+                  {remaining === 1 ? "" : "s"} to unlock the {nextRank.title}{" "}
+                  examination request.
+                </span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex items-start gap-2 rounded-lg bg-forest/10 px-3 py-2.5 text-sm text-forest-dark">
+            <Award className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              You hold the highest rank in the club. Thank you for leading
+              the way.
+            </span>
+          </div>
+        )}
+      </section>
+
+      <EditProfileForm
+        mobileNumber={profile.mobile_number}
+        carDetails={profile.car_details}
+      />
+    </div>
+  );
+}

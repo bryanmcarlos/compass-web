@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" preserveAspectRatio="xMidYMid slice" role="img" aria-labelledby="desertBannerTitle">
+  <title id="desertBannerTitle">Off-road desert trail</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8ceac"/>
+      <stop offset="55%" stop-color="#e0b98a"/>
+      <stop offset="100%" stop-color="#c96a3a"/>
+    </linearGradient>
+    <linearGradient id="duneFar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b3a488"/>
+      <stop offset="100%" stop-color="#8f7a5c"/>
+    </linearGradient>
+    <linearGradient id="duneMid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8f7452"/>
+      <stop offset="100%" stop-color="#6b573c"/>
+    </linearGradient>
+    <linearGradient id="duneNear" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4e3f2c"/>
+      <stop offset="100%" stop-color="#2c231a"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="300" fill="url(#sky)"/>
+  <circle cx="640" cy="90" r="46" fill="#faf3e2" opacity="0.85"/>
+
+  <path d="M0 190 Q120 140 260 175 T520 165 T800 185 V300 H0 Z" fill="url(#duneFar)" opacity="0.9"/>
+  <path d="M0 225 Q160 175 340 210 T700 205 L800 220 V300 H0 Z" fill="url(#duneMid)"/>
+  <path d="M0 260 Q220 220 420 250 T800 245 V300 H0 Z" fill="url(#duneNear)"/>
+
+  <g opacity="0.5" stroke="#faf8f4" stroke-width="2" stroke-linecap="round">
+    <path d="M60 268 q40 -10 80 0 t80 0"/>
+    <path d="M540 278 q40 -8 80 0 t80 0"/>
+  </g>
+</svg>

@@ -1,8 +1,40 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #faf8f4;
+  --foreground: #262321;
+
+  /* Club palette: off-white, deep charcoal, muted sand, forest accent */
+  --color-off-white: #faf8f4;
+  --color-charcoal: #262321;
+  --color-charcoal-light: #3d3834;
+  --color-sand: #d9cfbc;
+  --color-sand-light: #ece5d8;
+  --color-sand-dark: #b3a488;
+  --color-forest: #3f5b45;
+  --color-forest-light: #5a7a60;
+  --color-forest-dark: #2c4130;
+
+  /* Rank-tier ordinal ramp (one hue, monotone lightness, light -> dark = low -> high tier) */
+  --color-tier-1: #84ba8f;
+  --color-tier-2: #6ca177;
+  --color-tier-3: #4e835a;
+  --color-tier-4: #31653e;
+  --color-tier-5: #0f4621;
+
+  /* Status: form / validation error */
+  --color-error: #a8412a;
+  --color-error-bg: #f7e3dc;
+
+  /* Drive difficulty severity scale (reserved meaning, always icon+label) */
+  --color-diff-easy: #3f5b45;
+  --color-diff-easy-bg: #e3ecdf;
+  --color-diff-moderate: #7a5c17;
+  --color-diff-moderate-bg: #f3e8c9;
+  --color-diff-challenging: #8f4e1e;
+  --color-diff-challenging-bg: #f5e0cc;
+  --color-diff-extreme: #7a2318;
+  --color-diff-extreme-bg: #ecd4cf;
 }
 
 @theme inline {
@@ -10,12 +42,68 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-off-white: var(--color-off-white);
+  --color-charcoal: var(--color-charcoal);
+  --color-charcoal-light: var(--color-charcoal-light);
+  --color-sand: var(--color-sand);
+  --color-sand-light: var(--color-sand-light);
+  --color-sand-dark: var(--color-sand-dark);
+  --color-forest: var(--color-forest);
+  --color-forest-light: var(--color-forest-light);
+  --color-forest-dark: var(--color-forest-dark);
+
+  --color-tier-1: var(--color-tier-1);
+  --color-tier-2: var(--color-tier-2);
+  --color-tier-3: var(--color-tier-3);
+  --color-tier-4: var(--color-tier-4);
+  --color-tier-5: var(--color-tier-5);
+
+  --color-error: var(--color-error);
+  --color-error-bg: var(--color-error-bg);
+
+  --color-diff-easy: var(--color-diff-easy);
+  --color-diff-easy-bg: var(--color-diff-easy-bg);
+  --color-diff-moderate: var(--color-diff-moderate);
+  --color-diff-moderate-bg: var(--color-diff-moderate-bg);
+  --color-diff-challenging: var(--color-diff-challenging);
+  --color-diff-challenging-bg: var(--color-diff-challenging-bg);
+  --color-diff-extreme: var(--color-diff-extreme);
+  --color-diff-extreme-bg: var(--color-diff-extreme-bg);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #1c1a18;
+    --foreground: #ece5d8;
+
+    --color-off-white: #1c1a18;
+    --color-charcoal: #ece5d8;
+    --color-charcoal-light: #d9cfbc;
+    --color-sand: #3d3834;
+    --color-sand-light: #2c2825;
+    --color-sand-dark: #b3a488;
+    --color-forest: #5a7a60;
+    --color-forest-light: #7a9c80;
+    --color-forest-dark: #3f5b45;
+
+    --color-tier-1: #95d7a2;
+    --color-tier-2: #75b683;
+    --color-tier-3: #579766;
+    --color-tier-4: #397949;
+    --color-tier-5: #195c2e;
+
+    --color-error: #e08a6f;
+    --color-error-bg: #3a241e;
+
+    --color-diff-easy: #88ac8e;
+    --color-diff-easy-bg: #24302a;
+    --color-diff-moderate: #d9b658;
+    --color-diff-moderate-bg: #332a15;
+    --color-diff-challenging: #dd9a5f;
+    --color-diff-challenging-bg: #3a2716;
+    --color-diff-extreme: #e8a99a;
+    --color-diff-extreme-bg: #3a201c;
   }
 }
 

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 216 48" fill="none" role="img" aria-labelledby="compassLogoDarkTitle">
+  <title id="compassLogoDarkTitle">COMPASS</title>
+  <g transform="translate(4,4)">
+    <circle cx="20" cy="20" r="19" stroke="#d9cfbc" stroke-width="2"/>
+    <circle cx="20" cy="20" r="2" fill="#d9cfbc"/>
+    <path d="M20 3v5M20 32v5M3 20h5M32 20h5" stroke="#d9cfbc" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M20 8l5 12-5 12-5-12z" fill="#d9cfbc"/>
+    <path d="M20 8l5 12-5-2-5 2z" fill="#e08a5f"/>
+  </g>
+  <text x="56" y="27" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" letter-spacing="2" fill="#faf8f4">COMPASS</text>
+</svg>

@@ -1,0 +1,413 @@
+"use server";
+
+import { randomUUID } from "node:crypto";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/utils/supabase/server";
+import { COMPASS_RANKS } from "@/lib/constants";
+import { applyDriveTitlePrefix } from "@/lib/driveTitle";
+import { validateImageFile } from "@/lib/imageUpload";
+
+export type DriveFormState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+  /** Set on a successful updateDrive so the client can re-sync its display
+   * from what the server actually confirmed as saved, rather than assuming
+   * its own pre-submit state is still an accurate mirror of the database. */
+  updatedFields?: {
+    title: string;
+    meeting_time: string | null;
+    drive_start_time: string | null;
+    drive_end_time: string | null;
+    banner_url: string | null;
+  } | null;
+};
+
+const DIFFICULTIES = ["Easy", "Moderate", "Challenging", "Hard", "Extreme"];
+const STATUSES = ["Scheduled", "Completed", "Cancelled"];
+const CAMP_SCHEDULE_TYPES = ["Before the Drive", "After the Drive"];
+
+// Accepts the native <input type="time"> formats Postgres TIME columns also
+// accept natively: "HH:MM" and "HH:MM:SS" (24-hour).
+const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
+
+/** Empty -> null. Otherwise must match TIME_PATTERN, or this fails. */
+function parseOptionalTime(raw: string): string | null | "invalid" {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return TIME_PATTERN.test(trimmed) ? trimmed : "invalid";
+}
+
+/** Empty -> null. Missing scheme gets `https://` prepended (mobile share
+ * links like "maps.app.goo.gl/..." omit it) before a light validity check —
+ * any resulting absolute URL is accepted, not just known Google domains, so
+ * a Waze/OSM link etc. still works. Otherwise this fails. */
+function parseOptionalMapUrl(raw: string): string | null | "invalid" {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    new URL(withScheme);
+    return withScheme;
+  } catch {
+    return "invalid";
+  }
+}
+
+async function requireMarshal() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { supabase, user: null, isMarshal: false };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_marshal")
+    .eq("id", user.id)
+    .single();
+
+  return { supabase, user, isMarshal: profile?.is_marshal ?? false };
+}
+
+type BannerUploadResult = { ok: true; url: string } | { ok: false; message: string };
+
+/** Uploads to the 'drive-banners' bucket and returns its public URL. Storage
+ * RLS still gates this independently (marshals only) — this is the same
+ * user-scoped client `requireMarshal()` returned, never a service-role
+ * client, so a client-side bypass of the isMarshal check above still can't
+ * write to storage. */
+async function uploadBannerImage(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  path: string,
+  file: File,
+): Promise<BannerUploadResult> {
+  const { error } = await supabase.storage
+    .from("drive-banners")
+    .upload(path, file, { upsert: true, contentType: file.type });
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [drive banner upload]:", error);
+    return { ok: false, message: "Couldn't upload the banner image. Please try again." };
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("drive-banners").getPublicUrl(path);
+
+  // Cache-busted so <img> tags pick up a replaced file immediately even
+  // though an upsert overwrite leaves the storage path unchanged.
+  return { ok: true, url: `${publicUrl}?v=${Date.now()}` };
+}
+
+type ParsedDriveFields =
+  | { ok: true; fields: Record<string, unknown> }
+  | { ok: false; message: string };
+
+/** Shared validation for both create and update — never trust the client's
+ * enum values, numeric ranges, or which skills are valid for the chosen rank. */
+function parseDriveFields(formData: FormData): ParsedDriveFields {
+  const title = String(formData.get("title") ?? "").trim();
+  const difficulty = String(formData.get("difficulty") ?? "");
+  const status = String(formData.get("status") ?? "");
+  const driveDate = String(formData.get("driveDate") ?? "").trim();
+  const location = String(formData.get("location") ?? "").trim();
+  const targetRank = Number(formData.get("targetRank"));
+  const maxDrivers = Number(formData.get("maxDrivers"));
+
+  if (!title || !driveDate || !location) {
+    return { ok: false, message: "Fill in the title, date, and location." };
+  }
+  if (!DIFFICULTIES.includes(difficulty)) {
+    return { ok: false, message: "Choose a valid difficulty." };
+  }
+  if (!STATUSES.includes(status)) {
+    return { ok: false, message: "Choose a valid status." };
+  }
+  if (!Number.isInteger(targetRank) || targetRank < 1 || targetRank > 5) {
+    return { ok: false, message: "Choose a valid target rank." };
+  }
+  if (!Number.isInteger(maxDrivers) || maxDrivers < 1) {
+    return { ok: false, message: "Max driver slots must be a positive number." };
+  }
+
+  const allowedSkills = new Set(
+    COMPASS_RANKS[targetRank as 1 | 2 | 3 | 4 | 5]?.mustSkills ?? [],
+  );
+  const mustSkills = formData
+    .getAll("mustSkills")
+    .map((v) => String(v))
+    // Only accept skills that actually belong to the submitted target rank's
+    // curriculum — a crafted POST could otherwise inject arbitrary strings.
+    .filter((skill) => allowedSkills.has(skill));
+
+  const equipmentRequirements = [
+    ...new Set(
+      formData
+        .getAll("equipmentRequirements")
+        .map((v) => String(v).trim())
+        .filter(Boolean),
+    ),
+  ];
+
+  const optionalText = (key: string) => {
+    const value = String(formData.get(key) ?? "").trim();
+    return value || null;
+  };
+
+  const mapUrl = parseOptionalMapUrl(String(formData.get("mapUrl") ?? ""));
+  if (mapUrl === "invalid") {
+    return { ok: false, message: "Enter a valid map link." };
+  }
+
+  const meetingTime = parseOptionalTime(String(formData.get("meetingTime") ?? ""));
+  if (meetingTime === "invalid") {
+    return { ok: false, message: "Meeting time must be a valid 24-hour time." };
+  }
+  const driveStartTime = parseOptionalTime(
+    String(formData.get("driveStartTime") ?? ""),
+  );
+  if (driveStartTime === "invalid") {
+    return { ok: false, message: "Start time must be a valid 24-hour time." };
+  }
+  const driveEndTime = parseOptionalTime(String(formData.get("driveEndTime") ?? ""));
+  if (driveEndTime === "invalid") {
+    return { ok: false, message: "End time must be a valid 24-hour time." };
+  }
+
+  const hasCamp = formData.get("hasCamp") === "on";
+  let campDate: string | null = null;
+  let campTime: string | null = null;
+  let campLocation: string | null = null;
+  let campCoordinates: string | null = null;
+  let campScheduleType: string | null = null;
+
+  if (hasCamp) {
+    campDate = String(formData.get("campDate") ?? "").trim();
+    campLocation = optionalText("campLocation");
+    campCoordinates = optionalText("campCoordinates");
+    campScheduleType = String(formData.get("campScheduleType") ?? "");
+
+    if (!campDate || !campLocation) {
+      return {
+        ok: false,
+        message: "Fill in the camping date and location, or turn camping off.",
+      };
+    }
+    if (!CAMP_SCHEDULE_TYPES.includes(campScheduleType)) {
+      return { ok: false, message: "Choose a valid camping schedule." };
+    }
+
+    const parsedCampTime = parseOptionalTime(String(formData.get("campTime") ?? ""));
+    if (parsedCampTime === "invalid") {
+      return { ok: false, message: "Camping time must be a valid 24-hour time." };
+    }
+    campTime = parsedCampTime;
+  }
+
+  return {
+    ok: true,
+    fields: {
+      // drive_id_code is intentionally omitted — a database trigger
+      // generates it on insert, and it's left untouched on update.
+      // Strips any existing rank prefix before reapplying the correct one,
+      // so this is safe whether `title` is a clean base title (the normal
+      // case, since the form field never shows the prefix) or one that
+      // still carries a stale prefix from before the target rank changed.
+      title: applyDriveTitlePrefix(title, targetRank),
+      difficulty,
+      status,
+      drive_date: driveDate,
+      location,
+      target_rank: targetRank,
+      max_drivers: maxDrivers,
+      meeting_point_name: optionalText("meetingPointName"),
+      coordinates: optionalText("coordinates"),
+      map_url: mapUrl,
+      meeting_time: meetingTime,
+      drive_start_time: driveStartTime,
+      drive_end_time: driveEndTime,
+      radio_frequency: optionalText("radioFrequency"),
+      equipment_requirements:
+        equipmentRequirements.length > 0 ? equipmentRequirements : null,
+      must_skills_covered: mustSkills.length > 0 ? mustSkills : null,
+      // Toggling camping off clears any previously-saved camp details rather
+      // than leaving stale data behind that the UI no longer shows as set.
+      has_camp: hasCamp,
+      camp_date: campDate,
+      camp_time: campTime,
+      camp_location: campLocation,
+      camp_coordinates: campCoordinates,
+      camp_schedule_type: campScheduleType,
+    },
+  };
+}
+
+export async function createDrive(
+  _prevState: DriveFormState,
+  formData: FormData,
+): Promise<DriveFormState> {
+  const { supabase, user, isMarshal } = await requireMarshal();
+
+  if (!user) {
+    return { status: "error", message: "You need to be signed in to post a drive." };
+  }
+  if (!isMarshal) {
+    return { status: "error", message: "Only marshals can post drives." };
+  }
+
+  const parsed = parseDriveFields(formData);
+  if (!parsed.ok) {
+    return { status: "error", message: parsed.message };
+  }
+
+  const fields = { ...parsed.fields };
+
+  // No drive id exists yet to path by, so a fresh random path is used
+  // instead — unlike the edit-mode path below, there's nothing to overwrite.
+  const bannerEntry = formData.get("bannerImage");
+  if (bannerEntry instanceof File && bannerEntry.size > 0) {
+    const validation = validateImageFile(bannerEntry);
+    if (!validation.ok) {
+      return { status: "error", message: validation.message };
+    }
+    const extension = validation.file.type.split("/")[1] ?? "jpg";
+    const path = `${user.id}/${randomUUID()}.${extension}`;
+    const uploaded = await uploadBannerImage(supabase, path, validation.file);
+    if (!uploaded.ok) {
+      return { status: "error", message: uploaded.message };
+    }
+    fields.banner_url = uploaded.url;
+  }
+
+  let newDriveId: string;
+
+  try {
+    const { data, error } = await supabase
+      .from("drives")
+      .insert({ ...fields, lead_marshal_id: user.id })
+      .select("id")
+      .single();
+
+    if (error) {
+      console.error("SERVER ACTION ERROR [createDrive]:", error);
+      return { status: "error", message: error.message };
+    }
+
+    newDriveId = data.id;
+  } catch (err) {
+    console.error("SERVER ACTION ERROR [createDrive]:", err);
+    return {
+      status: "error",
+      message:
+        err instanceof Error
+          ? err.message
+          : "Couldn't post this drive. Please try again.",
+    };
+  }
+
+  // redirect() throws a framework-handled control-flow exception — it must
+  // stay outside the try/catch above, or it would be caught and reported as
+  // a real error instead of performing the navigation.
+  revalidatePath("/drives");
+  redirect(`/drives/${newDriveId}`);
+}
+
+export async function updateDrive(
+  _prevState: DriveFormState,
+  formData: FormData,
+): Promise<DriveFormState> {
+  const { supabase, user, isMarshal } = await requireMarshal();
+
+  if (!user) {
+    return { status: "error", message: "You need to be signed in to edit a drive." };
+  }
+  if (!isMarshal) {
+    return { status: "error", message: "Only marshals can edit drives." };
+  }
+
+  const driveId = String(formData.get("driveId") ?? "").trim();
+  if (!driveId) {
+    return { status: "error", message: "Missing drive." };
+  }
+
+  const parsed = parseDriveFields(formData);
+  if (!parsed.ok) {
+    return { status: "error", message: parsed.message };
+  }
+
+  const fields = { ...parsed.fields };
+
+  // A fixed per-drive path (rather than a random one) keeps storage tidy via
+  // upsert — a replaced banner overwrites the last one instead of
+  // accumulating orphaned files. `removeBanner` explicitly nulls the column
+  // out; leaving both unset (no new file, no removal) leaves it untouched by
+  // simply never adding the key to `fields`, so the existing value survives.
+  const bannerEntry = formData.get("bannerImage");
+  const removeBanner = formData.get("removeBanner") === "on";
+  if (bannerEntry instanceof File && bannerEntry.size > 0) {
+    const validation = validateImageFile(bannerEntry);
+    if (!validation.ok) {
+      return { status: "error", message: validation.message };
+    }
+    const extension = validation.file.type.split("/")[1] ?? "jpg";
+    const path = `${driveId}/banner.${extension}`;
+    const uploaded = await uploadBannerImage(supabase, path, validation.file);
+    if (!uploaded.ok) {
+      return { status: "error", message: uploaded.message };
+    }
+    fields.banner_url = uploaded.url;
+  } else if (removeBanner) {
+    fields.banner_url = null;
+  }
+
+  try {
+    // Exactly what's about to be sent to Postgres for these three columns —
+    // check this against the terminal if a save ever looks like it didn't
+    // take, before suspecting anything further upstream.
+    console.log("DB UPDATE PAYLOAD:", {
+      meeting_time: parsed.fields.meeting_time,
+      drive_start_time: parsed.fields.drive_start_time,
+      drive_end_time: parsed.fields.drive_end_time,
+    });
+
+    // Deliberately not gated on drive.status — marshals can still update
+    // must_skills_covered (and anything else) after a drive is Completed.
+    // .select().single() reads back exactly what Postgres now holds, so the
+    // caller can re-sync the form from confirmed reality instead of assuming
+    // its pre-submit client state is still accurate.
+    const { data: updatedDrive, error } = await supabase
+      .from("drives")
+      .update(fields)
+      .eq("id", driveId)
+      .select("title, meeting_time, drive_start_time, drive_end_time, banner_url")
+      .single();
+
+    if (error) {
+      console.error("SERVER ACTION ERROR [updateDrive]:", error);
+      return { status: "error", message: error.message };
+    }
+
+    revalidatePath(`/drives/${driveId}`);
+    revalidatePath("/drives");
+
+    return {
+      status: "success",
+      message: "Drive updated.",
+      updatedFields: updatedDrive,
+    };
+  } catch (err) {
+    console.error("SERVER ACTION ERROR [updateDrive]:", err);
+    return {
+      status: "error",
+      message:
+        err instanceof Error
+          ? err.message
+          : "Couldn't save these changes. Please try again.",
+    };
+  }
+}
