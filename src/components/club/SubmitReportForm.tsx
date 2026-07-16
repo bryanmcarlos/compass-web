@@ -70,7 +70,7 @@ export function SubmitReportForm({
             name="driveId"
             required
             defaultValue=""
-            className="w-full appearance-none rounded-lg border border-sand bg-off-white py-2.5 pr-9 pl-9 text-sm text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+            className="w-full appearance-none rounded-lg border border-sand bg-off-white py-2 pr-9 pl-9 text-base text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
           >
             <option value="" disabled>
               Select a completed drive…
@@ -106,7 +106,7 @@ export function SubmitReportForm({
             minLength={20}
             rows={6}
             placeholder="We tackled the river crossing at km 4, which was flowing higher than expected..."
-            className="w-full resize-y rounded-lg border border-sand bg-off-white py-2.5 pr-3 pl-9 text-sm text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+            className="w-full resize-y rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
           />
         </div>
       </div>
@@ -133,7 +133,7 @@ export function SubmitReportForm({
             placeholder={
               "https://res.cloudinary.com/your-club/trail-1.jpg\nhttps://i.imgur.com/example.jpg"
             }
-            className="w-full resize-y rounded-lg border border-sand bg-off-white py-2.5 pr-3 pl-9 text-sm text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+            className="w-full resize-y rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
           />
         </div>
       </div>

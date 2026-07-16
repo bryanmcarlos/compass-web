@@ -62,7 +62,7 @@ export function RegisterDriveForm({
             required
             value={role}
             onChange={(e) => setRole(e.target.value as RegistrationRole)}
-            className="w-full rounded-lg border border-sand bg-off-white py-2.5 px-3 text-sm text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+            className="w-full rounded-lg border border-sand bg-off-white py-2 px-3 text-base text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
           >
             {availableRoles.map((r) => (
               <option key={r} value={r}>

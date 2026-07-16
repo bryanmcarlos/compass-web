@@ -235,7 +235,7 @@ function Field({
           placeholder={placeholder}
           autoComplete={autoComplete}
           required={required}
-          className="w-full rounded-lg border border-sand bg-off-white py-2.5 pr-3 pl-9 text-sm text-charcoal placeholder:text-charcoal-light/50 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+          className="w-full rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-base text-charcoal placeholder:text-charcoal-light/50 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
         />
       </div>
     </div>
@@ -273,7 +273,7 @@ function PasswordField({
           autoComplete={autoComplete}
           minLength={minLength}
           required
-          className="w-full rounded-lg border border-sand bg-off-white py-2.5 pr-10 pl-9 text-sm text-charcoal placeholder:text-charcoal-light/50 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+          className="w-full rounded-lg border border-sand bg-off-white py-2 pr-10 pl-9 text-base text-charcoal placeholder:text-charcoal-light/50 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
         />
         <button
           type="button"

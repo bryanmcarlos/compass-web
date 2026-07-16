@@ -646,7 +646,7 @@ export function DriveForm({
               }
             }}
             placeholder="e.g. Winch"
-            className="w-full flex-1 rounded-lg border border-sand bg-off-white px-3 py-2.5 text-sm text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+            className="w-full flex-1 rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
           />
           <button
             type="button"
@@ -772,7 +772,7 @@ function TextField({
         onChange={onChange}
         required={required}
         min={min}
-        className="w-full rounded-lg border border-sand bg-off-white px-3 py-2.5 text-sm text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+        className="w-full rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
       />
     </div>
   );
@@ -803,7 +803,7 @@ function SelectField({
         name={name}
         value={value}
         onChange={onChange}
-        className="w-full rounded-lg border border-sand bg-off-white px-3 py-2.5 text-sm text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+        className="w-full rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
