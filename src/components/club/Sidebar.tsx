@@ -1,11 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Compass, BookOpen, CircleUser, LayoutDashboard } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  Compass,
+  BookOpen,
+  CircleUser,
+  LayoutDashboard,
+  LogOut,
+  LoaderCircle,
+} from "lucide-react";
 import type { ComponentType } from "react";
 import { Logo } from "./Logo";
 import { CLUB_CONFIG } from "@/lib/constants";
+import { createClient } from "@/utils/supabase/client";
 
 type NavItem = {
   label: string;
@@ -22,6 +31,23 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  async function handleSignOut() {
+    setIsSigningOut(true);
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      router.push("/login");
+      router.refresh();
+    } catch (error) {
+      // A dropped network request here shouldn't leave an uncaught
+      // rejection — log it and let the marshal try again from a live button.
+      console.error("Sign out failed:", error);
+      setIsSigningOut(false);
+    }
+  }
 
   return (
     <nav
@@ -65,6 +91,28 @@ export function Sidebar() {
             </li>
           );
         })}
+
+        <li className="lg:mt-auto lg:w-full lg:border-t lg:border-sand lg:pt-3">
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={isSigningOut}
+            className="
+              flex w-full flex-col items-center gap-1 rounded-lg px-3 py-2 text-xs
+              text-charcoal-light/70 transition-colors
+              hover:text-error disabled:cursor-not-allowed disabled:opacity-60
+              lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5 lg:text-sm lg:font-medium
+              lg:hover:bg-error-bg
+            "
+          >
+            {isSigningOut ? (
+              <LoaderCircle className="h-5 w-5 shrink-0 animate-spin" />
+            ) : (
+              <LogOut className="h-5 w-5 shrink-0" />
+            )}
+            <span>{isSigningOut ? "Signing out…" : "Sign Out"}</span>
+          </button>
+        </li>
       </ul>
     </nav>
   );
