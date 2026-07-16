@@ -35,6 +35,7 @@ import { CopyRosterButton } from "@/components/club/CopyRosterButton";
 import { CLUB_CONFIG } from "@/lib/constants";
 import { formatDate, formatTime } from "@/lib/format";
 import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
+import { getAppSettings } from "@/lib/appSettings";
 
 type DriveDetail = {
   id: string;
@@ -272,6 +273,8 @@ export default async function DriveDetailPage({
   }
   const drive = data;
 
+  const { defaultDriveBannerUrl } = await getAppSettings();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -380,7 +383,7 @@ export default async function DriveDetailPage({
         <div className="relative h-48 w-full sm:h-64">
           {/* eslint-disable-next-line @next/next/no-img-element -- Supabase Storage / local default, no fixed remote domain to allowlist */}
           <img
-            src={drive.banner_url || "/defaults/desert-banner.svg"}
+            src={drive.banner_url || defaultDriveBannerUrl || "/defaults/desert-banner.svg"}
             alt=""
             className="absolute inset-0 h-full w-full object-cover"
           />

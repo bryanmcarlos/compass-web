@@ -1,4 +1,7 @@
+"use client";
+
 import { CLUB_CONFIG } from "@/lib/constants";
+import { useThemeSettings } from "./ThemeSettingsProvider";
 
 /**
  * "auto" swaps ink color with the site's light/dark theme (for use on
@@ -13,16 +16,16 @@ export function Logo({
   variant?: "auto" | "light" | "dark";
   className?: string;
 }) {
-  // A marshal-supplied custom logo (set via CLUB_CONFIG for a white-labeled
-  // deployment) always wins over the bundled default mark.
-  if (CLUB_CONFIG.metadata.logoUrl) {
+  const { logoUrl: dynamicLogoUrl } = useThemeSettings();
+  // The Super Admin-uploaded logo (app_settings.logo_url) wins first, then
+  // the static CLUB_CONFIG override (for a white-labeled deployment with no
+  // admin panel in play), then the bundled default mark.
+  const logoUrl = dynamicLogoUrl ?? CLUB_CONFIG.metadata.logoUrl;
+
+  if (logoUrl) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element -- arbitrary club-supplied URL, no known remote domain to allowlist
-      <img
-        src={CLUB_CONFIG.metadata.logoUrl}
-        alt={CLUB_CONFIG.metadata.shortName}
-        className={className}
-      />
+      // eslint-disable-next-line @next/next/no-img-element -- admin/club-supplied URL, no fixed remote domain to allowlist
+      <img src={logoUrl} alt={CLUB_CONFIG.metadata.shortName} className={className} />
     );
   }
 

@@ -15,6 +15,11 @@
   --color-forest-light: #5a7a60;
   --color-forest-dark: #2c4130;
 
+  /* Dynamic brand accent — overridden per-request via an inline style on
+     <html> in app/layout.tsx (sourced from app_settings.primary_color).
+     This value is only the static fallback for when that fetch fails. */
+  --color-primary: #e68a00;
+
   /* Rank-tier ordinal ramp (one hue, monotone lightness, light -> dark = low -> high tier) */
   --color-tier-1: #84ba8f;
   --color-tier-2: #6ca177;
@@ -52,6 +57,8 @@
   --color-forest: var(--color-forest);
   --color-forest-light: var(--color-forest-light);
   --color-forest-dark: var(--color-forest-dark);
+
+  --color-primary: var(--color-primary);
 
   --color-tier-1: var(--color-tier-1);
   --color-tier-2: var(--color-tier-2);

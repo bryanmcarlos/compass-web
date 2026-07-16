@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LogOut,
   LoaderCircle,
+  Settings,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { Logo } from "./Logo";
@@ -29,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Profile", href: "/profile", icon: CircleUser },
 ];
 
-export function Sidebar() {
+export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -92,7 +93,35 @@ export function Sidebar() {
           );
         })}
 
-        <li className="lg:mt-auto lg:w-full lg:border-t lg:border-sand lg:pt-3">
+        {isAdmin && (
+          <li className="lg:mt-auto lg:w-full lg:border-t lg:border-sand lg:pt-3">
+            <Link
+              href="/admin/settings"
+              aria-current={pathname.startsWith("/admin") ? "page" : undefined}
+              className={`
+                flex flex-col items-center gap-1 rounded-lg px-3 py-2 text-xs
+                transition-colors
+                lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5 lg:text-sm lg:font-medium
+                ${
+                  pathname.startsWith("/admin")
+                    ? "text-forest lg:bg-sand-light"
+                    : "text-charcoal-light/70 hover:text-forest lg:hover:bg-sand-light"
+                }
+              `}
+            >
+              <Settings className="h-5 w-5 shrink-0" />
+              <span>Admin Settings</span>
+            </Link>
+          </li>
+        )}
+
+        <li
+          className={
+            isAdmin
+              ? "lg:w-full"
+              : "lg:mt-auto lg:w-full lg:border-t lg:border-sand lg:pt-3"
+          }
+        >
           <button
             type="button"
             onClick={handleSignOut}

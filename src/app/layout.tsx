@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { getAppSettings } from "@/lib/appSettings";
+import { ThemeSettingsProvider } from "@/components/club/ThemeSettingsProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,17 +26,24 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { primaryColor, logoUrl } = await getAppSettings();
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      style={{ "--color-primary": primaryColor } as React.CSSProperties}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <ThemeSettingsProvider logoUrl={logoUrl}>
+          {children}
+        </ThemeSettingsProvider>
+      </body>
     </html>
   );
 }
