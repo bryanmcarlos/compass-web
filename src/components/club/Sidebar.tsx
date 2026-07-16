@@ -1,21 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   Compass,
   BookOpen,
   CircleUser,
   LayoutDashboard,
-  LogOut,
-  LoaderCircle,
   Settings,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { Logo } from "./Logo";
 import { CLUB_CONFIG } from "@/lib/constants";
-import { createClient } from "@/utils/supabase/client";
 
 type NavItem = {
   label: string;
@@ -30,25 +26,19 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Profile", href: "/profile", icon: CircleUser },
 ];
 
+const ADMIN_NAV_ITEM: NavItem = {
+  label: "Admin Settings",
+  href: "/admin/settings",
+  icon: Settings,
+};
+
 export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const [isSigningOut, setIsSigningOut] = useState(false);
 
-  async function handleSignOut() {
-    setIsSigningOut(true);
-    try {
-      const supabase = createClient();
-      await supabase.auth.signOut();
-      router.push("/login");
-      router.refresh();
-    } catch (error) {
-      // A dropped network request here shouldn't leave an uncaught
-      // rejection — log it and let the marshal try again from a live button.
-      console.error("Sign out failed:", error);
-      setIsSigningOut(false);
-    }
-  }
+  // Exactly 4 tabs for regular members; a 5th (Admin Settings) appears only
+  // for admins, always last — both counts render through the same list so
+  // mobile and desktop never need separate admin-only markup.
+  const items = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
 
   return (
     <nav
@@ -65,8 +55,16 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
         </Link>
       </div>
 
-      <ul className="flex w-full items-center justify-around lg:flex-col lg:items-stretch lg:gap-1">
-        {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
+      {/* A CSS grid (rather than flex + justify-around) on mobile gives every
+          tab an exactly equal-width column regardless of whether there are 4
+          or 5 — so a long label like "Official Drives" wrapping to two lines
+          never eats into a neighboring tab's space. */}
+      <ul
+        className={`grid w-full items-center gap-1 ${
+          items.length === 5 ? "grid-cols-5" : "grid-cols-4"
+        } lg:flex lg:flex-col lg:items-stretch`}
+      >
+        {items.map(({ label, href, icon: Icon }) => {
           const isActive =
             href === "/" ? pathname === "/" : pathname.startsWith(href);
 
@@ -76,8 +74,8 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
                 href={href}
                 aria-current={isActive ? "page" : undefined}
                 className={`
-                  flex flex-col items-center gap-1 rounded-lg px-3 py-2 text-xs
-                  transition-colors
+                  flex flex-col items-center gap-1 rounded-lg px-1 py-2 text-center text-xs
+                  leading-tight transition-colors
                   lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5 lg:text-sm lg:font-medium
                   ${
                     isActive
@@ -92,56 +90,6 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
             </li>
           );
         })}
-
-        {isAdmin && (
-          <li className="lg:mt-auto lg:w-full lg:border-t lg:border-sand lg:pt-3">
-            <Link
-              href="/admin/settings"
-              aria-current={pathname.startsWith("/admin") ? "page" : undefined}
-              className={`
-                flex flex-col items-center gap-1 rounded-lg px-3 py-2 text-xs
-                transition-colors
-                lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5 lg:text-sm lg:font-medium
-                ${
-                  pathname.startsWith("/admin")
-                    ? "text-forest lg:bg-sand-light"
-                    : "text-charcoal-light/70 hover:text-forest lg:hover:bg-sand-light"
-                }
-              `}
-            >
-              <Settings className="h-5 w-5 shrink-0" />
-              <span>Admin Settings</span>
-            </Link>
-          </li>
-        )}
-
-        <li
-          className={
-            isAdmin
-              ? "lg:w-full"
-              : "lg:mt-auto lg:w-full lg:border-t lg:border-sand lg:pt-3"
-          }
-        >
-          <button
-            type="button"
-            onClick={handleSignOut}
-            disabled={isSigningOut}
-            className="
-              flex w-full flex-col items-center gap-1 rounded-lg px-3 py-2 text-xs
-              text-charcoal-light/70 transition-colors
-              hover:text-error disabled:cursor-not-allowed disabled:opacity-60
-              lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5 lg:text-sm lg:font-medium
-              lg:hover:bg-error-bg
-            "
-          >
-            {isSigningOut ? (
-              <LoaderCircle className="h-5 w-5 shrink-0 animate-spin" />
-            ) : (
-              <LogOut className="h-5 w-5 shrink-0" />
-            )}
-            <span>{isSigningOut ? "Signing out…" : "Sign Out"}</span>
-          </button>
-        </li>
       </ul>
     </nav>
   );

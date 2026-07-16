@@ -6,6 +6,7 @@ import { AvatarUploadForm } from "@/components/club/AvatarUploadForm";
 import { RankBadge } from "@/components/club/RankBadge";
 import { RequestPromotionButton } from "@/components/club/RequestPromotionButton";
 import { EditProfileForm } from "@/components/club/EditProfileForm";
+import { SignOutButton } from "@/components/club/SignOutButton";
 import { CLUB_CONFIG, COMPASS_RANKS } from "@/lib/constants";
 
 export default async function ProfilePage() {
@@ -224,6 +225,8 @@ export default async function ProfilePage() {
         mobileNumber={profile.mobile_number}
         carDetails={profile.car_details}
       />
+
+      <SignOutButton />
     </div>
   );
 }
