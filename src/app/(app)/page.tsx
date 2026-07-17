@@ -1,13 +1,7 @@
 import type { ComponentType } from "react";
-import {
-  Compass,
-  Layers,
-  Users,
-  Route,
-  CalendarDays,
-  ShieldCheck,
-} from "lucide-react";
+import { Compass, Layers, Users, Route, FileText, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/club/Logo";
+import { createClient } from "@/utils/supabase/server";
 import { CLUB_CONFIG, type RankLevel } from "@/lib/constants";
 
 type RankTier = RankLevel & { members: number };
@@ -15,45 +9,49 @@ type RankTier = RankLevel & { members: number };
 type ClubDashboardData = {
   tiers: RankTier[];
   totalMembers: number;
-  officialDrives: number;
-  clubActivities: number;
+  totalTripReports: number;
+  scheduledDrives: number;
 };
 
-/**
- * Placeholder Server Component data fetch. Swap for a real Supabase query
- * once member counts are tracked, e.g.:
- *   const supabase = await createClient();
- *   const { data } = await supabase.from("profiles").select("current_rank");
- * Rank titles/colors themselves are never hardcoded here — they come from
- * `CLUB_CONFIG.ranks`, this function only supplies the per-rank counts.
- */
 async function getClubDashboardData(): Promise<ClubDashboardData> {
-  const memberCountByRank: Record<number, number> = {
-    1: 75,
-    2: 30,
-    3: 15,
-    4: 10,
-    5: 7,
-  };
+  const supabase = await createClient();
+
+  // Rank distribution has no cheap GROUP BY over PostgREST, so this pulls
+  // just the one column for every profile (a few hundred rows, ~KB of JSON)
+  // and tallies it in JS — same "fetch narrow, aggregate in code" pattern
+  // this app already uses elsewhere (e.g. the profile page's skill tally).
+  const [{ data: rankRows }, { count: totalMembers }, { count: totalTripReports }, { count: scheduledDrives }] =
+    await Promise.all([
+      supabase.from("profiles").select("current_rank"),
+      supabase.from("profiles").select("id", { count: "exact", head: true }),
+      supabase.from("trip_reports").select("id", { count: "exact", head: true }),
+      supabase
+        .from("drives")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "Scheduled"),
+    ]);
+
+  const memberCountByRank: Record<number, number> = {};
+  for (const row of rankRows ?? []) {
+    memberCountByRank[row.current_rank] = (memberCountByRank[row.current_rank] ?? 0) + 1;
+  }
 
   const tiers: RankTier[] = CLUB_CONFIG.ranks.map((rank) => ({
     ...rank,
     members: memberCountByRank[rank.level] ?? 0,
   }));
 
-  const totalMembers = tiers.reduce((sum, t) => sum + t.members, 0);
-
   return {
     tiers,
-    totalMembers,
-    officialDrives: 8,
-    clubActivities: 4,
+    totalMembers: totalMembers ?? 0,
+    totalTripReports: totalTripReports ?? 0,
+    scheduledDrives: scheduledDrives ?? 0,
   };
 }
 
 export default async function Home() {
   const data = await getClubDashboardData();
-  const maxTierMembers = Math.max(...data.tiers.map((t) => t.members));
+  const maxTierMembers = Math.max(...data.tiers.map((t) => t.members), 1);
 
   const [seniorRank, secondSeniorRank] = [...CLUB_CONFIG.ranks].sort(
     (a, b) => b.level - a.level,
@@ -95,9 +93,9 @@ export default async function Home() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-sand bg-off-white p-6 shadow-sm sm:p-8">
+      <section className="rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/30 p-6 shadow-sm sm:p-8">
         <header className="mb-6 flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-sand-light text-forest">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sand-light text-forest">
             <Layers className="h-5 w-5" />
           </span>
           <div>
@@ -114,15 +112,15 @@ export default async function Home() {
           {data.tiers.map((t) => {
             const widthPct = (t.members / maxTierMembers) * 100;
             return (
-              <li key={t.level} className="group">
-                <div className="mb-1.5 flex items-baseline justify-between text-sm">
-                  <span className="font-medium text-charcoal">
+              <li key={t.level} className="group min-w-0">
+                <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate font-medium text-charcoal">
                     <span className="mr-2 text-xs font-semibold text-charcoal-light/60">
                       T{t.level}
                     </span>
                     {t.title}
                   </span>
-                  <span className="font-semibold text-charcoal tabular-nums">
+                  <span className="shrink-0 font-semibold text-charcoal tabular-nums">
                     {t.members}
                   </span>
                 </div>
@@ -141,14 +139,15 @@ export default async function Home() {
         </ul>
       </section>
 
-      <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatTile icon={Users} label="Total Members" value={data.totalMembers} />
-        <StatTile icon={Route} label="Official Drives" value={data.officialDrives} />
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile
-          icon={CalendarDays}
-          label="Club Activities"
-          value={data.clubActivities}
+          icon={Users}
+          label="Total Members"
+          value={data.totalMembers}
+          accent="primary"
         />
+        <StatTile icon={FileText} label="Trip Reports" value={data.totalTripReports} />
+        <StatTile icon={Route} label="Scheduled Drives" value={data.scheduledDrives} />
         <StatTile icon={ShieldCheck} label={seniorLabel} value={seniorMembers} />
       </section>
     </div>
@@ -159,21 +158,44 @@ function StatTile({
   icon: Icon,
   label,
   value,
+  accent = "forest",
 }: {
   icon: ComponentType<{ className?: string }>;
   label: string;
   value: number;
+  accent?: "forest" | "primary";
 }) {
+  const iconBg = accent === "primary" ? "bg-primary/10" : "bg-forest/10";
+  const iconFg = accent === "primary" ? "text-primary" : "text-forest";
+  const glow = accent === "primary" ? "bg-primary/25" : "bg-forest/25";
+  const hoverBorder = accent === "primary" ? "hover:border-primary/40" : "hover:border-forest/40";
+
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm transition-shadow hover:shadow-md">
-      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-forest/10 text-forest">
-        <Icon className="h-5 w-5" />
-      </span>
-      <div>
-        <p className="text-2xl font-semibold text-charcoal">
-          {value.toLocaleString()}
-        </p>
-        <p className="text-sm text-charcoal-light/80">{label}</p>
+    <div
+      className={`group relative overflow-hidden rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/50 p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${hoverBorder}`}
+    >
+      {/* Decorative only — a soft blurred accent that appears on hover, never
+          carries meaning on its own (the icon + label + value already do). */}
+      <span
+        aria-hidden="true"
+        className={`pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full ${glow} opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100`}
+      />
+      <div className="relative flex flex-col gap-3">
+        <span
+          className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg} ${iconFg}`}
+        >
+          <Icon className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
+          {/* Proportional figures (not tabular-nums) — this is a standalone
+              display value, not a column of numbers that need to align. */}
+          <p className="text-2xl font-semibold text-charcoal">
+            {value.toLocaleString()}
+          </p>
+          <p className="truncate text-xs font-semibold tracking-wider text-charcoal-light/60 uppercase">
+            {label}
+          </p>
+        </div>
       </div>
     </div>
   );

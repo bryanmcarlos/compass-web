@@ -1,23 +1,25 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createClient as createServiceRoleClient } from "@supabase/supabase-js";
+import { createClient as createServiceRoleClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 
 type ResetPasswordPayload = { userId: string; action: "resetPassword"; data: { newPassword: string } };
 type RequestPayload = ResetPasswordPayload | { userId: string; action: string; data?: unknown };
 
+type AdminCheckResult =
+  | { ok: true; adminClient: SupabaseClient }
+  | { ok: false; response: NextResponse };
+
 /**
- * The one admin operation in this app that genuinely cannot be done with the
- * normal session-scoped client + RLS — setting a member's password directly
- * (no old password, no email round-trip) only exists on Supabase Auth's
- * admin API (`auth.admin.updateUserById`), which requires the service-role
- * key. Rank changes, account disable, and profile-field edits are handled
- * elsewhere as ordinary Server Actions against `profiles`, since none of
- * those need to bypass RLS — keep this route's blast radius to just the one
- * thing that actually requires it.
+ * Shared by every handler below: re-derives admin status from the caller's
+ * own session cookie (never trusts a client-supplied flag), then mints a
+ * one-off service-role client scoped to this single request — never
+ * persisted, never exposed to the browser. This key bypasses RLS entirely,
+ * so it's deliberately the only place in the app that touches it, and only
+ * for the operations that genuinely have no RLS-respecting equivalent:
+ * setting a password directly, and reading a member's login email (which
+ * lives in Supabase's `auth.users`, never exposed to the normal client).
  */
-export async function PATCH(request: NextRequest) {
-  // Re-derive admin status from the caller's own session cookie — the
-  // request body's userId/action are never trusted as a substitute for this.
+async function requireAdminServiceClient(): Promise<AdminCheckResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -25,7 +27,10 @@ export async function PATCH(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return NextResponse.json({ error: "You need to be signed in." }, { status: 401 });
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "You need to be signed in." }, { status: 401 }),
+    };
   }
 
   const { data: profile } = await supabase
@@ -35,22 +40,65 @@ export async function PATCH(request: NextRequest) {
     .single();
 
   if (!profile?.is_admin) {
-    return NextResponse.json(
-      { error: "Only Super Admins can manage member accounts." },
-      { status: 403 },
-    );
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Only Super Admins can manage member accounts." },
+        { status: 403 },
+      ),
+    };
   }
 
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceRoleKey) {
     console.error("API ERROR [/api/admin/users]: SUPABASE_SERVICE_ROLE_KEY is not set.");
-    return NextResponse.json(
-      {
-        error:
-          "This server isn't configured for account-management actions yet — SUPABASE_SERVICE_ROLE_KEY is missing.",
-      },
-      { status: 500 },
-    );
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          error:
+            "This server isn't configured for account-management actions yet — SUPABASE_SERVICE_ROLE_KEY is missing.",
+        },
+        { status: 500 },
+      ),
+    };
+  }
+
+  const adminClient = createServiceRoleClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  return { ok: true, adminClient };
+}
+
+/** Fetches a single member's login email — `?userId=`. Rank/disable/profile-
+ * field reads and writes all go through `profiles` via ordinary Server
+ * Actions instead; this route is only for the two things that need
+ * Supabase's Admin API. */
+export async function GET(request: NextRequest) {
+  const check = await requireAdminServiceClient();
+  if (!check.ok) {
+    return check.response;
+  }
+
+  const userId = request.nextUrl.searchParams.get("userId");
+  if (!userId) {
+    return NextResponse.json({ error: "Missing userId." }, { status: 400 });
+  }
+
+  const { data, error } = await check.adminClient.auth.admin.getUserById(userId);
+  if (error || !data.user) {
+    console.error("API ERROR [/api/admin/users GET]:", error);
+    return NextResponse.json({ error: error?.message ?? "User not found." }, { status: 404 });
+  }
+
+  return NextResponse.json({ email: data.user.email ?? null });
+}
+
+export async function PATCH(request: NextRequest) {
+  const check = await requireAdminServiceClient();
+  if (!check.ok) {
+    return check.response;
   }
 
   let body: RequestPayload;
@@ -77,21 +125,12 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  // Deliberately a one-off client scoped to this request, never persisted or
-  // reused across requests, and never exposed to the browser — this key
-  // bypasses RLS entirely.
-  const adminClient = createServiceRoleClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceRoleKey,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  );
-
-  const { error } = await adminClient.auth.admin.updateUserById(userId, {
+  const { error } = await check.adminClient.auth.admin.updateUserById(userId, {
     password: newPassword,
   });
 
   if (error) {
-    console.error("API ERROR [/api/admin/users resetPassword]:", error);
+    console.error("API ERROR [/api/admin/users PATCH resetPassword]:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Search,
   Settings2,
@@ -10,6 +10,9 @@ import {
   KeyRound,
   LoaderCircle,
   Save,
+  Copy,
+  Check,
+  Mail,
 } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
@@ -416,6 +419,7 @@ function FieldsEditControl({ member }: { member: Member }) {
         Profile Fields
       </h3>
       <input type="hidden" name="memberId" value={member.id} />
+      <EmailField userId={member.id} />
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <input
           type="text"
@@ -457,5 +461,104 @@ function FieldsEditControl({ member }: { member: Member }) {
         />
       )}
     </form>
+  );
+}
+
+/** Read-only — login email lives in Supabase's `auth.users`, never exposed
+ * to the normal client, so it's fetched on demand (only once this panel is
+ * open, not for every row up front) from the service-role-gated API route.
+ * No `name` attribute on the input: it's display + copy only, and must never
+ * accidentally submit alongside the editable fields in the form around it. */
+function EmailField({ userId }: { userId: string }) {
+  const [email, setEmail] = useState<string | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // No reset to "loading" here: this component is remounted fresh (its
+    // initial state already is "loading") each time a different member's
+    // panel opens, rather than being reused in place across userIds.
+    let cancelled = false;
+
+    fetch(`/api/admin/users?userId=${encodeURIComponent(userId)}`)
+      .then(async (res) => {
+        const json = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          throw new Error(json.error ?? "Couldn't load email.");
+        }
+        setEmail(json.email ?? null);
+        setStatus("ready");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setErrorMessage(err instanceof Error ? err.message : "Couldn't load email.");
+        setStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  async function handleCopy() {
+    if (!email) return;
+    try {
+      await navigator.clipboard.writeText(email);
+      setCopied(true);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API can be unavailable (insecure context, denied
+      // permission) — the button just silently won't flash "Copied!".
+    }
+  }
+
+  const displayValue =
+    status === "loading" ? "Loading…" : status === "error" ? (errorMessage ?? "Unavailable") : (email ?? "—");
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex items-center gap-1.5 text-xs font-medium text-charcoal-light/70">
+        <Mail className="h-3.5 w-3.5" />
+        Login Email
+      </label>
+      <div className="relative w-full sm:max-w-sm">
+        <input
+          type="text"
+          readOnly
+          disabled={status !== "ready"}
+          value={displayValue}
+          aria-label="Login email"
+          className="w-full cursor-default rounded-lg border border-sand bg-sand-light py-2 pr-10 pl-3 text-base text-charcoal-light/80 focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={handleCopy}
+          disabled={status !== "ready" || !email}
+          aria-label="Copy email to clipboard"
+          title="Copy email to clipboard"
+          className="absolute top-1/2 right-2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-charcoal-light/60 transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-forest" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+        {copied && (
+          <span
+            role="status"
+            className="absolute -top-6 right-0 rounded bg-charcoal px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-off-white"
+          >
+            Copied!
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
