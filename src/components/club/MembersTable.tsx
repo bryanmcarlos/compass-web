@@ -88,20 +88,25 @@ export function MembersTable({
         </select>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-sand bg-off-white shadow-sm">
-        <table className="w-full min-w-[640px] text-left text-sm">
+      {/* w-full (not a min-w) + overflow-x-auto as a safety net, not the
+          primary fix — the actual fix is the compact/hidden columns below
+          making the table genuinely fit a mobile viewport, so this scroll
+          axis sits unused in practice rather than clipping content that
+          doesn't fit (which is what overflow-x-hidden would do here). */}
+      <div className="w-full overflow-x-auto rounded-2xl border border-sand bg-off-white shadow-sm">
+        <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-sand text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
-              <th className="px-4 py-3">Member</th>
-              <th className="px-4 py-3">Rank</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th className="px-2 py-3 md:px-4">Member</th>
+              <th className="w-px px-2 py-3 whitespace-nowrap md:px-4">Rank</th>
+              <th className="w-px px-2 py-3 whitespace-nowrap md:px-4">Status</th>
+              <th className="w-px px-2 py-3 text-right whitespace-nowrap md:px-4">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-charcoal-light/60">
+                <td colSpan={4} className="px-2 py-8 text-center text-charcoal-light/60 md:px-4">
                   No members match your search.
                 </td>
               </tr>
@@ -141,53 +146,67 @@ function MemberRow({
   return (
     <>
       <tr className="border-b border-sand last:border-b-0">
-        <td className="px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Avatar name={displayName} avatarUrl={member.avatar_url} className="h-9 w-9 text-xs" />
+        <td className="px-2 py-3 md:px-4">
+          <div className="flex min-w-0 items-center gap-2 md:gap-3">
+            <Avatar
+              name={displayName}
+              avatarUrl={member.avatar_url}
+              className="h-7 w-7 shrink-0 text-[10px] sm:h-9 sm:w-9 sm:text-xs"
+            />
             <div className="min-w-0">
-              <p className="truncate font-medium text-charcoal">
+              <p className="truncate text-xs font-medium text-charcoal md:text-sm">
                 {displayName}
-                {isSelf && <span className="ml-1.5 text-xs text-charcoal-light/50">(you)</span>}
+                {isSelf && <span className="ml-1.5 text-charcoal-light/50">(you)</span>}
               </p>
-              <p className="truncate text-xs text-charcoal-light/60">@{member.username}</p>
+              {/* Username drops off the very smallest screens rather than
+                  fighting the name for width — it's still one tap away via
+                  Manage, so nothing here becomes unreachable, just denser. */}
+              <p className="hidden truncate text-xs text-charcoal-light/60 sm:block">
+                @{member.username}
+              </p>
             </div>
           </div>
         </td>
-        <td className="px-4 py-3">
-          <RankBadge rank={member.current_rank} />
+        <td className="w-px px-2 py-3 whitespace-nowrap md:px-4">
+          <RankBadge rank={member.current_rank} className="text-[11px] md:text-xs" />
         </td>
-        <td className="px-4 py-3">
+        <td className="w-px px-2 py-3 whitespace-nowrap md:px-4">
           {member.is_disabled ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-error-bg px-2 py-0.5 text-xs font-semibold text-error">
               <Ban className="h-3 w-3" />
-              Disabled
+              <span className="sr-only sm:not-sr-only">Disabled</span>
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 rounded-full bg-forest/10 px-2 py-0.5 text-xs font-semibold text-forest-dark">
               <CircleCheck className="h-3 w-3" />
-              Active
+              <span className="sr-only sm:not-sr-only">Active</span>
             </span>
           )}
         </td>
-        <td className="px-4 py-3 text-right">
+        <td className="w-px px-2 py-3 text-right whitespace-nowrap md:px-4">
           <button
             type="button"
             onClick={onToggleExpand}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-sand px-3 py-1.5 text-xs font-semibold text-charcoal-light transition-colors hover:border-primary/40 hover:text-primary"
+            aria-expanded={isExpanded}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sand px-2.5 py-1.5 text-xs font-semibold text-charcoal-light transition-colors hover:border-primary/40 hover:text-primary"
           >
             <Settings2 className="h-3.5 w-3.5" />
-            {isExpanded ? "Close" : "Manage"}
+            <span className="sr-only sm:not-sr-only">{isExpanded ? "Close" : "Manage"}</span>
           </button>
         </td>
       </tr>
       {isExpanded && (
         <tr className="border-b border-sand bg-sand-light/60">
-          <td colSpan={4} className="px-4 py-5">
-            <div className="flex flex-col gap-6">
+          <td colSpan={4} className="px-2 py-5 md:px-4">
+            <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-6">
               <RankControl member={member} />
               <DisableControl member={member} isSelf={isSelf} />
-              <PasswordResetControl member={member} />
-              <FieldsEditControl member={member} />
+              <div className="md:col-span-2">
+                <PasswordResetControl member={member} />
+              </div>
+              <div className="md:col-span-2">
+                <FieldsEditControl member={member} />
+              </div>
             </div>
           </td>
         </tr>
@@ -235,11 +254,11 @@ function RankControl({ member }: { member: Member }) {
       <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
         Rank Override
       </h3>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <select
           value={rank}
           onChange={(e) => setRank(Number(e.target.value))}
-          className="rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+          className="w-full rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none sm:w-auto"
         >
           {CLUB_CONFIG.ranks.map((r) => (
             <option key={r.level} value={r.level}>
@@ -251,7 +270,7 @@ function RankControl({ member }: { member: Member }) {
           type="button"
           onClick={handleApply}
           disabled={isPending || rank === member.current_rank}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
         >
           {isPending ? (
             <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -295,7 +314,7 @@ function DisableControl({ member, isSelf }: { member: Member; isSelf: boolean })
         onClick={handleToggle}
         disabled={isPending || isSelf}
         title={isSelf ? "You can't disable your own account" : undefined}
-        className={`flex w-fit items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+        className={`flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:w-fit ${
           isDisabled
             ? "border-forest/40 bg-off-white text-forest hover:bg-forest/10"
             : "border-error/30 bg-off-white text-error hover:bg-error-bg"
@@ -358,22 +377,22 @@ function PasswordResetControl({ member }: { member: Member }) {
       <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
         Reset Password
       </h3>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:w-64">
           <KeyRound className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-charcoal-light/60" />
           <input
             type="text"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             placeholder="New password (min. 8 characters)"
-            className="w-64 rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+            className="w-full rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
           />
         </div>
         <button
           type="button"
           onClick={handleReset}
           disabled={isPending}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
         >
           {isPending ? (
             <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -423,7 +442,7 @@ function FieldsEditControl({ member }: { member: Member }) {
       <button
         type="submit"
         disabled={pending}
-        className="flex w-fit items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-60 sm:w-fit"
       >
         {pending ? (
           <LoaderCircle className="h-4 w-4 animate-spin" />
