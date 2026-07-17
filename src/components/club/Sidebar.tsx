@@ -28,7 +28,7 @@ const NAV_ITEMS: NavItem[] = [
 
 const ADMIN_NAV_ITEM: NavItem = {
   label: "Admin Settings",
-  href: "/admin/settings",
+  href: "/admin",
   icon: Settings,
 };
 

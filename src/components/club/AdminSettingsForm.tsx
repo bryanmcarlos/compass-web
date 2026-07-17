@@ -14,7 +14,7 @@ import {
 import {
   updateAppSettings,
   type AppSettingsState,
-} from "@/app/(app)/admin/settings/actions";
+} from "@/app/(app)/admin/site-settings/actions";
 import { FALLBACK_PRIMARY_COLOR } from "@/lib/appSettings";
 
 const initialState: AppSettingsState = { status: "idle", message: null };
