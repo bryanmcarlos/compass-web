@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { TriangleAlert, CircleCheck, LoaderCircle, CircleAlert, Trash2 } from "lucide-react";
 import { approveTripReport, deleteTripReport } from "@/app/(app)/trip-reports/actions";
 import { Avatar } from "./Avatar";
+import { cleanReportText } from "@/lib/tripReportText";
 
 export type PendingReport = {
   id: string;
@@ -21,7 +22,7 @@ export type PendingReport = {
  * this is meant to be a quick snippet for a review queue, not the full
  * report. */
 function snippet(text: string, max = 220) {
-  const clean = text
+  const clean = cleanReportText(text)
     .replace(/[#*_>`-]/g, "")
     .replace(/\s+/g, " ")
     .trim();

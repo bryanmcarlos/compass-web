@@ -5,6 +5,7 @@ import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
 import { DeleteReportButton } from "./DeleteReportButton";
 import { formatDate } from "@/lib/format";
+import { cleanReportText } from "@/lib/tripReportText";
 
 export type TripReportCardData = {
   id: string;
@@ -145,12 +146,14 @@ export function TripReportCard({
   const authorName = report.author?.full_name ?? report.author?.username ?? "A club member";
 
   const body = (
-    <article className="group relative flex h-full min-w-0 flex-col gap-4 overflow-hidden rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/40 p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
+    <article className="group relative flex h-full w-full min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/40 p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md sm:gap-4 sm:p-5">
       <div className="flex items-start gap-3">
         <Avatar name={authorName} avatarUrl={report.author?.avatar_url ?? null} />
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="font-semibold text-charcoal">{authorName}</span>
+            <span className="text-sm font-semibold tracking-tight text-charcoal sm:text-base">
+              {authorName}
+            </span>
             {report.author && <RankBadge rank={report.author.current_rank} />}
           </div>
           <span className="text-xs text-charcoal-light/70">
@@ -159,12 +162,12 @@ export function TripReportCard({
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {report.is_approved ? (
-            <span className="flex items-center gap-1 rounded-full bg-forest/10 px-2 py-1 text-[11px] font-semibold text-forest">
+            <span className="flex items-center gap-1 rounded-full bg-forest/10 px-1.5 py-0.5 text-[10px] font-semibold text-forest">
               <BadgeCheck className="h-3.5 w-3.5" />
               Approved
             </span>
           ) : (
-            <span className="flex items-center gap-1 rounded-full bg-sand-light px-2 py-1 text-[11px] font-semibold text-charcoal-light/70">
+            <span className="flex items-center gap-1 rounded-full bg-sand-light px-1.5 py-0.5 text-[10px] font-semibold text-charcoal-light/70">
               <HourglassIcon className="h-3.5 w-3.5" />
               Pending
             </span>
@@ -176,23 +179,23 @@ export function TripReportCard({
       </div>
 
       {showDriveContext && report.drive && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-sand-light px-3 py-2 text-xs font-medium text-charcoal-light/90">
-          <span className="flex items-center gap-1.5">
-            <Route className="h-3.5 w-3.5 text-forest" />
+        <div className="inline-flex w-fit max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg bg-sand-light px-2.5 py-1 text-xs font-medium break-words text-charcoal-light/90">
+          <span className="flex items-center gap-1">
+            <Route className="h-3.5 w-3.5 shrink-0 text-forest" />
             {report.drive.title}
           </span>
           <span aria-hidden="true">·</span>
           <span>{formatDate(report.drive.drive_date)}</span>
           <span aria-hidden="true">·</span>
           <span className="flex items-center gap-1">
-            <MapPin className="h-3.5 w-3.5" />
+            <MapPin className="h-3.5 w-3.5 shrink-0" />
             {report.drive.location}
           </span>
         </div>
       )}
 
-      <div className="min-w-0 text-sm text-charcoal">
-        <Markdown components={markdownComponents}>{report.report_text}</Markdown>
+      <div className="w-full min-w-0 text-xs text-charcoal sm:text-sm">
+        <Markdown components={markdownComponents}>{cleanReportText(report.report_text)}</Markdown>
       </div>
 
       {report.photos && report.photos.length > 0 && (
