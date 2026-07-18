@@ -73,25 +73,52 @@ export async function uploadImageToCloudinary(formData: FormData): Promise<Uploa
 
   const buffer = Buffer.from(await validation.file.arrayBuffer());
 
+  // Guards against exactly the "hangs indefinitely" symptom, independent of
+  // whatever the underlying cause turns out to be on a given request (slow
+  // mobile upload link, a stalled socket to Cloudinary, a serverless
+  // platform silently dropping the connection rather than erroring it) —
+  // this makes sure the Server Action always settles one way or the other
+  // within a bounded time instead of leaving the browser waiting forever.
+  const UPLOAD_TIMEOUT_MS = 25_000;
+
   try {
-    const result = await new Promise<{ secure_url: string }>((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        { folder: "compass_trip_reports" },
-        (error, uploadResult) => {
-          if (error || !uploadResult) {
-            reject(error ?? new Error("Cloudinary returned no result."));
-            return;
-          }
-          resolve(uploadResult);
-        },
-      );
-      uploadStream.end(buffer);
-    });
+    const result = await Promise.race([
+      new Promise<{ secure_url: string }>((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { folder: "compass_trip_reports" },
+          (error, uploadResult) => {
+            if (error || !uploadResult) {
+              reject(error ?? new Error("Cloudinary returned no result."));
+              return;
+            }
+            resolve(uploadResult);
+          },
+        );
+        // Belt-and-suspenders alongside the upload_stream callback above —
+        // if the underlying socket errors out at the stream level rather
+        // than Cloudinary's API cleanly responding with an error, this is
+        // what actually catches it instead of the promise never settling.
+        uploadStream.on("error", reject);
+        uploadStream.end(buffer);
+      }),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error("UPLOAD_TIMEOUT")),
+          UPLOAD_TIMEOUT_MS,
+        );
+      }),
+    ]);
 
     return { status: "success", message: "Photo uploaded.", url: result.secure_url };
   } catch (err) {
     console.error("SERVER ACTION ERROR [uploadImageToCloudinary]:", err);
-    return { status: "error", message: "Couldn't upload this photo. Please try again." };
+    const timedOut = err instanceof Error && err.message === "UPLOAD_TIMEOUT";
+    return {
+      status: "error",
+      message: timedOut
+        ? "This upload is taking too long — check your connection and try again."
+        : "Couldn't upload this photo. Please try again.",
+    };
   }
 }
 
@@ -396,4 +423,84 @@ export async function approveTripReport(reportId: string): Promise<ApproveReport
   }
 
   return { status: "success", message: "Report approved." };
+}
+
+export type UpdateReportState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+};
+
+/** Author-only — deliberately narrower than linkTripReportToDrive/
+ * approveTripReport, which both also allow an Admin. Rewriting someone
+ * else's personal account of a drive is a different kind of intervention
+ * than re-linking metadata or moderating visibility; nothing here asked for
+ * admin edit access, so it isn't granted implicitly. */
+export async function updateTripReport(
+  _prevState: UpdateReportState,
+  formData: FormData,
+): Promise<UpdateReportState> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", message: "You need to be signed in." };
+  }
+
+  const reportId = String(formData.get("reportId") ?? "").trim();
+  if (!reportId) {
+    return { status: "error", message: "Missing report." };
+  }
+
+  const { data: report } = await supabase
+    .from("trip_reports")
+    .select("author_id")
+    .eq("id", reportId)
+    .single();
+
+  if (!report) {
+    return { status: "error", message: "Couldn't find that trip report." };
+  }
+  if (report.author_id !== user.id) {
+    return { status: "error", message: "You can only edit your own trip report." };
+  }
+
+  const reportText = String(formData.get("reportText") ?? "").trim();
+  if (reportText.length < 20) {
+    return {
+      status: "error",
+      message: "Tell us a bit more about the drive — at least 20 characters.",
+    };
+  }
+
+  const photos = formData
+    .getAll("photoUrls")
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+
+  const invalidUrl = photos.find((url) => !isValidHttpUrl(url));
+  if (invalidUrl) {
+    return { status: "error", message: `"${invalidUrl}" doesn't look like a valid image URL.` };
+  }
+
+  const { error } = await supabase
+    .from("trip_reports")
+    .update({
+      report_text: reportText,
+      photos: photos.length > 0 ? photos : null,
+    })
+    .eq("id", reportId);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [updateTripReport]:", error);
+    return { status: "error", message: "Couldn't save your changes. Please try again." };
+  }
+
+  revalidatePath("/trip-reports");
+  revalidatePath(`/trip-reports/${reportId}`);
+
+  redirect(`/trip-reports/${reportId}?reportSubmitted=updated`);
 }

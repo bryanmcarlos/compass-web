@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Mountain, CheckSquare } from "lucide-react";
+import { ArrowLeft, Mountain, CheckSquare, PenLine } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { TripReportCard, type TripReportCardData } from "@/components/club/TripReportCard";
 import { AttachToDriveControl, type PastDrive } from "@/components/club/AttachToDriveControl";
@@ -9,6 +9,12 @@ type TripReportDetail = TripReportCardData & {
   author_id: string;
   drive_id: string | null;
 };
+
+const SUBMIT_BANNER_MESSAGE = {
+  pending: "Trip report submitted successfully and is pending Marshal review!",
+  live: "Trip report submitted and live on the community feed!",
+  updated: "Trip report updated.",
+} as const;
 
 export default async function TripReportDetailPage({
   params,
@@ -84,22 +90,13 @@ export default async function TripReportDetailPage({
         Back to Trip Reports
       </Link>
 
-      {reportSubmitted === "pending" && (
+      {reportSubmitted && reportSubmitted in SUBMIT_BANNER_MESSAGE && (
         <div
           role="alert"
           className="flex items-center gap-2 rounded-2xl border border-forest/30 bg-forest/10 px-4 py-3 text-sm font-medium text-forest-dark"
         >
           <CheckSquare className="h-4 w-4 shrink-0" />
-          Trip report submitted successfully and is pending Marshal review!
-        </div>
-      )}
-      {reportSubmitted === "live" && (
-        <div
-          role="alert"
-          className="flex items-center gap-2 rounded-2xl border border-forest/30 bg-forest/10 px-4 py-3 text-sm font-medium text-forest-dark"
-        >
-          <CheckSquare className="h-4 w-4 shrink-0" />
-          Trip report submitted and live on the community feed!
+          {SUBMIT_BANNER_MESSAGE[reportSubmitted as keyof typeof SUBMIT_BANNER_MESSAGE]}
         </div>
       )}
 
@@ -111,6 +108,16 @@ export default async function TripReportDetailPage({
       </header>
 
       <TripReportCard report={report} />
+
+      {user?.id === report.author_id && (
+        <Link
+          href={`/trip-reports/${report.id}/edit`}
+          className="flex w-fit items-center gap-2 self-center rounded-lg border border-primary/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
+        >
+          <PenLine className="h-4 w-4" />
+          Edit Your Trip Report
+        </Link>
+      )}
 
       {isAuthorOrAdmin && (
         <AttachToDriveControl

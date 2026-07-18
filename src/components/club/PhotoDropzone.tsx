@@ -21,14 +21,26 @@ type PhotoItem = {
  * submitTripReport already reads via formData.getAll, so the outer form
  * needs zero awareness of Cloudinary at all. */
 export function PhotoDropzone({
+  initialPhotos,
   onUploadingChange,
 }: {
+  /** Pre-existing Cloudinary URLs, e.g. when editing a report that already
+   * has photos — rendered as already-"success" items up front, removable
+   * same as a freshly-uploaded one, with no re-upload needed. */
+  initialPhotos?: string[];
   /** Lets the parent form disable Submit while anything is still uploading
    * — without this, submitting mid-upload would silently drop that photo,
    * since its hidden input doesn't exist until the upload succeeds. */
   onUploadingChange?: (isUploading: boolean) => void;
 }) {
-  const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [photos, setPhotos] = useState<PhotoItem[]>(() =>
+    (initialPhotos ?? []).map((url) => ({
+      id: url,
+      previewUrl: url,
+      status: "success" as const,
+      secureUrl: url,
+    })),
+  );
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -128,7 +140,7 @@ export function PhotoDropzone({
           <span className="font-semibold text-primary">click to browse files</span>
         </p>
         <p className="text-xs text-charcoal-light/50">
-          JPEG, PNG, WEBP, or GIF — up to 5MB each
+          JPEG, PNG, WEBP, or GIF — up to 10MB each
         </p>
         <input
           ref={inputRef}

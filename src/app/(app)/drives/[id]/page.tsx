@@ -296,8 +296,13 @@ export default async function DriveDetailPage({
   // logic until a higher rank tier is introduced).
   let isSuperUser = false;
   let myRegistration: { role: RegistrationRole } | null = null;
+  // Any report by this user for this drive, regardless of approval status
+  // — a still-pending report already counts as "you've submitted one" for
+  // the purposes of swapping Share -> Edit, same as it already blocks a
+  // second submission in submitTripReport.
+  let myExistingReportId: string | null = null;
   if (user) {
-    const [{ data: profile }, { data: existing }] = await Promise.all([
+    const [{ data: profile }, { data: existing }, { data: existingReport }] = await Promise.all([
       supabase
         .from("profiles")
         .select("current_rank, is_marshal, is_mit, is_admin")
@@ -309,6 +314,12 @@ export default async function DriveDetailPage({
         .eq("drive_id", id)
         .eq("user_id", user.id)
         .maybeSingle(),
+      supabase
+        .from("trip_reports")
+        .select("id")
+        .eq("drive_id", id)
+        .eq("author_id", user.id)
+        .maybeSingle(),
     ]);
     userRank = profile?.current_rank ?? null;
     userIsMit = profile?.is_mit ?? false;
@@ -316,6 +327,7 @@ export default async function DriveDetailPage({
     isAdmin = profile?.is_admin ?? false;
     isSuperUser = isAdmin || (profile?.current_rank ?? 0) > 5;
     myRegistration = existing ?? null;
+    myExistingReportId = existingReport?.id ?? null;
   }
 
   // Rank alone was never the authorization gate anywhere else in this app —
@@ -419,6 +431,31 @@ export default async function DriveDetailPage({
 
   const broadcastMessage = `Hello COMPASS team, here is the official convoy list for our upcoming drive:\n\n${convoyRosterText}`;
   const broadcastLink = `https://wa.me/?text=${encodeURIComponent(broadcastMessage)}`;
+
+  // Computed once, used in both the empty-state and has-reports layouts
+  // below, so the three-way Share / Edit / not-registered logic can't drift
+  // out of sync between them.
+  const reportCta = !myRegistration ? (
+    <p className="text-xs text-charcoal-light/60">
+      Only registered participants can file a report for this drive.
+    </p>
+  ) : myExistingReportId ? (
+    <Link
+      href={`/trip-reports/${myExistingReportId}/edit`}
+      className="flex w-fit items-center gap-2 rounded-lg border border-primary/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
+    >
+      <PenLine className="h-4 w-4" />
+      Edit Your Trip Report
+    </Link>
+  ) : (
+    <Link
+      href={`/trip-reports/new?driveId=${drive.id}`}
+      className="flex w-fit items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90"
+    >
+      <PenLine className="h-4 w-4" />
+      Share a Trip Report
+    </Link>
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -700,24 +737,11 @@ export default async function DriveDetailPage({
         {tripReports.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-sand px-5 py-8 text-center">
             <p className="max-w-sm text-sm text-charcoal-light/80">
-              {myRegistration
+              {myRegistration && !myExistingReportId
                 ? "No trip reports filed for this adventure yet. Be the first to share yours!"
                 : "No trip reports filed for this adventure yet."}
             </p>
-            {myRegistration ? (
-              <Link
-                href={`/trip-reports/new?driveId=${drive.id}`}
-                className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90"
-              >
-                <PenLine className="h-4 w-4" />
-                Share a Trip Report
-              </Link>
-            ) : (
-              <p className="text-xs text-charcoal-light/60">
-                Only registered participants can file a report for this
-                drive.
-              </p>
-            )}
+            {reportCta}
           </div>
         ) : (
           <>
@@ -731,15 +755,7 @@ export default async function DriveDetailPage({
                 />
               ))}
             </div>
-            {myRegistration && (
-              <Link
-                href={`/trip-reports/new?driveId=${drive.id}`}
-                className="flex w-fit items-center gap-2 self-center rounded-lg border border-primary/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
-              >
-                <PenLine className="h-4 w-4" />
-                Share Your Trip Report
-              </Link>
-            )}
+            {myRegistration && <div className="self-center">{reportCta}</div>}
           </>
         )}
       </section>

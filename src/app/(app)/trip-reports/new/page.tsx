@@ -7,6 +7,14 @@ import {
   type CompletedDrive,
 } from "@/components/club/SubmitReportForm";
 
+// Extends the default Server Action timeout for this page — a large photo
+// upload over a slow mobile connection can plausibly outrun the platform's
+// default (Vercel's classic default is 10s), which looks like a hang to the
+// browser even though it's really the function getting killed out from
+// under the request. Still bounded well under the 25s upload_stream timeout
+// in uploadImageToCloudinary itself.
+export const maxDuration = 30;
+
 export default async function NewTripReportPage({
   searchParams,
 }: {
