@@ -3,6 +3,7 @@ import Markdown, { type Components } from "react-markdown";
 import { BadgeCheck, HourglassIcon, MapPin, Route } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
+import { DeleteReportButton } from "./DeleteReportButton";
 import { formatDate } from "@/lib/format";
 
 export type TripReportCardData = {
@@ -127,10 +128,19 @@ export function TripReportCard({
   report,
   linkToDetail = false,
   showDriveContext = true,
+  canDelete = false,
+  deleteRedirectTo,
 }: {
   report: TripReportCardData;
   linkToDetail?: boolean;
   showDriveContext?: boolean;
+  /** Admin-only affordance — the three call sites (feed, drive-detail
+   * section, report detail page) each derive this from their own viewer's
+   * profiles.is_admin, never trusted from anywhere else. */
+  canDelete?: boolean;
+  /** See DeleteReportButton — only needed when this card is rendered on the
+   * report's own detail page. */
+  deleteRedirectTo?: string;
 }) {
   const authorName = report.author?.full_name ?? report.author?.username ?? "A club member";
 
@@ -147,17 +157,22 @@ export function TripReportCard({
             {formatRelativeTime(report.created_at)}
           </span>
         </div>
-        {report.is_approved ? (
-          <span className="flex shrink-0 items-center gap-1 rounded-full bg-forest/10 px-2 py-1 text-[11px] font-semibold text-forest">
-            <BadgeCheck className="h-3.5 w-3.5" />
-            Approved
-          </span>
-        ) : (
-          <span className="flex shrink-0 items-center gap-1 rounded-full bg-sand-light px-2 py-1 text-[11px] font-semibold text-charcoal-light/70">
-            <HourglassIcon className="h-3.5 w-3.5" />
-            Pending
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {report.is_approved ? (
+            <span className="flex items-center gap-1 rounded-full bg-forest/10 px-2 py-1 text-[11px] font-semibold text-forest">
+              <BadgeCheck className="h-3.5 w-3.5" />
+              Approved
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 rounded-full bg-sand-light px-2 py-1 text-[11px] font-semibold text-charcoal-light/70">
+              <HourglassIcon className="h-3.5 w-3.5" />
+              Pending
+            </span>
+          )}
+          {canDelete && (
+            <DeleteReportButton reportId={report.id} redirectTo={deleteRedirectTo} />
+          )}
+        </div>
       </div>
 
       {showDriveContext && report.drive && (

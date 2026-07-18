@@ -47,18 +47,21 @@ export default async function TripReportDetailPage({
     data: { user },
   } = await supabase.auth.getUser();
 
+  // isAdmin is kept as its own variable, not just folded into
+  // isAuthorOrAdmin — the delete button below is admin-only, not
+  // author-or-admin, so an author who happens to also be an admin still
+  // needs the real value here, not a short-circuited "already know they can
+  // see this page" true/false.
+  let isAdmin = false;
   let isAuthorOrAdmin = false;
   if (user) {
     const isAuthor = report.author_id === user.id;
-    let isAdmin = false;
-    if (!isAuthor) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("is_admin")
-        .eq("id", user.id)
-        .single();
-      isAdmin = profile?.is_admin ?? false;
-    }
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", user.id)
+      .single();
+    isAdmin = profile?.is_admin ?? false;
     isAuthorOrAdmin = isAuthor || isAdmin;
   }
 
@@ -107,7 +110,7 @@ export default async function TripReportDetailPage({
         <h1 className="text-xl font-bold tracking-tight text-charcoal">Trip Report</h1>
       </header>
 
-      <TripReportCard report={report} />
+      <TripReportCard report={report} canDelete={isAdmin} deleteRedirectTo="/trip-reports" />
 
       {user?.id === report.author_id && (
         <Link

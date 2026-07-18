@@ -6,6 +6,21 @@ import { TripReportCard, type TripReportCardData } from "@/components/club/TripR
 
 export default async function TripReportsPage() {
   const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let isAdmin = false;
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", user.id)
+      .single();
+    isAdmin = profile?.is_admin ?? false;
+  }
+
   const { data, error } = await supabase
     .from("trip_reports")
     .select(
@@ -57,7 +72,12 @@ export default async function TripReportsPage() {
       ) : (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
           {reports.map((report) => (
-            <TripReportCard key={report.id} report={report} linkToDetail />
+            <TripReportCard
+              key={report.id}
+              report={report}
+              linkToDetail
+              canDelete={isAdmin}
+            />
           ))}
         </div>
       )}

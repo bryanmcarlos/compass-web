@@ -752,6 +752,7 @@ export default async function DriveDetailPage({
                   report={report}
                   linkToDetail
                   showDriveContext={false}
+                  canDelete={isAdmin}
                 />
               ))}
             </div>

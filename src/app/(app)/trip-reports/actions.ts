@@ -504,3 +504,70 @@ export async function updateTripReport(
 
   redirect(`/trip-reports/${reportId}?reportSubmitted=updated`);
 }
+
+export type DeleteReportState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+};
+
+/** Admin-only, checked against profiles.is_admin — this app has no
+ * "Admin"/"Super Admin" rank string anywhere (current_rank is a plain
+ * integer 1-5, Newbie through Marshal, verified against the live schema
+ * before writing this); is_admin is the one real flag every other
+ * admin-gated action here already keys off. Returns a typed error state
+ * rather than throwing, same as every other Server Action in this file —
+ * none of this app's client call sites wrap their action calls in
+ * try/catch, so a raw throw would surface as an unhandled rejection
+ * instead of the inline error message a caller can actually render.
+ *
+ * Permanent. Unlike every other trip-report action so far (disable, unlink,
+ * un-approve-via-edit are all reversible), there's no undo here. */
+export async function deleteTripReport(reportId: string): Promise<DeleteReportState> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", message: "You need to be signed in." };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", user.id)
+    .single();
+
+  if (!profile?.is_admin) {
+    return { status: "error", message: "Only Admins can delete trip reports." };
+  }
+
+  // Read drive_id before deleting — needed to know which drive page to
+  // revalidate, and gone from the table the moment the delete succeeds.
+  const { data: report, error: fetchError } = await supabase
+    .from("trip_reports")
+    .select("drive_id")
+    .eq("id", reportId)
+    .single();
+
+  if (fetchError || !report) {
+    return { status: "error", message: "Couldn't find that trip report." };
+  }
+
+  const { error } = await supabase.from("trip_reports").delete().eq("id", reportId);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [deleteTripReport]:", error);
+    return { status: "error", message: "Couldn't delete this report. Please try again." };
+  }
+
+  revalidatePath("/trip-reports");
+  revalidatePath(`/trip-reports/${reportId}`);
+  if (report.drive_id) {
+    revalidatePath(`/drives/${report.drive_id}`);
+  }
+
+  return { status: "success", message: "Trip report deleted." };
+}
