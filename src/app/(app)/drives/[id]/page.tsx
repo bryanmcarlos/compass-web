@@ -726,7 +726,7 @@ export default async function DriveDetailPage({
         </div>
       </section>
 
-      {canReviewReports && <PendingReportsReview reports={pendingReports} />}
+      {canReviewReports && <PendingReportsReview reports={pendingReports} canDelete={isAdmin} />}
 
       <section className="flex flex-col gap-4 rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/30 p-5 shadow-sm sm:p-6">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">

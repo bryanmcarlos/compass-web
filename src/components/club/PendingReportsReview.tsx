@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { TriangleAlert, CircleCheck, LoaderCircle, CircleAlert } from "lucide-react";
-import { approveTripReport } from "@/app/(app)/trip-reports/actions";
+import { TriangleAlert, CircleCheck, LoaderCircle, CircleAlert, Trash2 } from "lucide-react";
+import { approveTripReport, deleteTripReport } from "@/app/(app)/trip-reports/actions";
 import { Avatar } from "./Avatar";
 
 export type PendingReport = {
@@ -28,10 +28,20 @@ function snippet(text: string, max = 220) {
   return clean.length > max ? `${clean.slice(0, max).trimEnd()}…` : clean;
 }
 
-export function PendingReportsReview({ reports }: { reports: PendingReport[] }) {
+export function PendingReportsReview({
+  reports,
+  canDelete = false,
+}: {
+  reports: PendingReport[];
+  /** Admin-only, mirrors TripReportCard's canDelete — a pending report can
+   * be rejected outright rather than only ever approved. */
+  canDelete?: boolean;
+}) {
   const router = useRouter();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ id: string; action: "approve" | "delete" } | null>(
+    null,
+  );
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<{ id: string; message: string } | null>(null);
 
@@ -41,20 +51,41 @@ export function PendingReportsReview({ reports }: { reports: PendingReport[] }) 
   }
 
   function handleApprove(reportId: string) {
-    setPendingId(reportId);
+    setPending({ id: reportId, action: "approve" });
     setError(null);
     startTransition(async () => {
       const result = await approveTripReport(reportId);
       if (result.status === "error") {
         setError({ id: reportId, message: result.message ?? "Couldn't approve this report." });
-        setPendingId(null);
+        setPending(null);
         return;
       }
       // Drop it from the queue immediately rather than waiting on the
       // server round-trip — router.refresh() still syncs the rest of the
       // page (e.g. the now-public card in "Trip Reports for this Drive").
       setDismissed((prev) => new Set(prev).add(reportId));
-      setPendingId(null);
+      setPending(null);
+      router.refresh();
+    });
+  }
+
+  function handleDelete(reportId: string) {
+    const confirmed = window.confirm(
+      "Are you sure you want to permanently delete this trip report?",
+    );
+    if (!confirmed) return;
+
+    setPending({ id: reportId, action: "delete" });
+    setError(null);
+    startTransition(async () => {
+      const result = await deleteTripReport(reportId);
+      if (result.status === "error") {
+        setError({ id: reportId, message: result.message ?? "Couldn't delete this report." });
+        setPending(null);
+        return;
+      }
+      setDismissed((prev) => new Set(prev).add(reportId));
+      setPending(null);
       router.refresh();
     });
   }
@@ -70,7 +101,8 @@ export function PendingReportsReview({ reports }: { reports: PendingReport[] }) 
         {visible.map((report) => {
           const authorName =
             report.author?.full_name ?? report.author?.username ?? "A club member";
-          const isThisPending = isPending && pendingId === report.id;
+          const isApproving = isPending && pending?.id === report.id && pending.action === "approve";
+          const isDeleting = isPending && pending?.id === report.id && pending.action === "delete";
 
           return (
             <div
@@ -91,19 +123,37 @@ export function PendingReportsReview({ reports }: { reports: PendingReport[] }) 
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleApprove(report.id)}
-                  disabled={isPending}
-                  className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isThisPending ? (
-                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <CircleCheck className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleApprove(report.id)}
+                    disabled={isPending}
+                    className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isApproving ? (
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CircleCheck className="h-3.5 w-3.5" />
+                    )}
+                    Approve Report
+                  </button>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(report.id)}
+                      disabled={isPending}
+                      aria-label="Delete report"
+                      title="Delete report"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-error/70 transition-colors hover:bg-error-bg hover:text-error disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isDeleting ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                    </button>
                   )}
-                  Approve Report
-                </button>
+                </div>
                 {error?.id === report.id && (
                   <span className="flex items-center gap-1.5 text-xs text-error">
                     <CircleAlert className="h-3.5 w-3.5 shrink-0" />
