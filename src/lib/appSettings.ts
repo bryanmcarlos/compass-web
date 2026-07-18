@@ -4,6 +4,7 @@ export type AppSettings = {
   primaryColor: string;
   logoUrl: string | null;
   defaultDriveBannerUrl: string | null;
+  requireTripReportApproval: boolean;
 };
 
 export const FALLBACK_PRIMARY_COLOR = "#FFBF2D";
@@ -15,10 +16,14 @@ export const FALLBACK_PRIMARY_COLOR = "#FFBF2D";
  * including the still-staticable "/" and "/login"; touching `cookies()`
  * there would force the whole app dynamic just to read a color. */
 export async function getAppSettings(): Promise<AppSettings> {
+  // Moderation defaults ON when unknown (fetch failure, column not migrated
+  // yet) — the conservative fallback, and what every submission already did
+  // before this flag existed.
   const fallback: AppSettings = {
     primaryColor: FALLBACK_PRIMARY_COLOR,
     logoUrl: null,
     defaultDriveBannerUrl: null,
+    requireTripReportApproval: true,
   };
 
   try {
@@ -29,7 +34,7 @@ export async function getAppSettings(): Promise<AppSettings> {
 
     const { data, error } = await supabase
       .from("app_settings")
-      .select("primary_color, logo_url, default_drive_banner_url")
+      .select("primary_color, logo_url, default_drive_banner_url, require_trip_report_approval")
       .limit(1)
       .maybeSingle();
 
@@ -41,6 +46,7 @@ export async function getAppSettings(): Promise<AppSettings> {
       primaryColor: data.primary_color || FALLBACK_PRIMARY_COLOR,
       logoUrl: data.logo_url,
       defaultDriveBannerUrl: data.default_drive_banner_url,
+      requireTripReportApproval: data.require_trip_report_approval ?? true,
     };
   } catch {
     return fallback;

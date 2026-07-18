@@ -35,6 +35,7 @@ import { RegisterDriveForm } from "@/components/club/RegisterDriveForm";
 import { UnregisterButton } from "@/components/club/UnregisterButton";
 import { CopyRosterButton } from "@/components/club/CopyRosterButton";
 import { TripReportCard, type TripReportCardData } from "@/components/club/TripReportCard";
+import { PendingReportsReview, type PendingReport } from "@/components/club/PendingReportsReview";
 import { CLUB_CONFIG } from "@/lib/constants";
 import { formatDate, formatTime } from "@/lib/format";
 import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
@@ -285,6 +286,7 @@ export default async function DriveDetailPage({
   let userRank: number | null = null;
   let userIsMit = false;
   let isMarshal = false;
+  let isAdmin = false;
   // A Super User is a narrower, elevated tier above a standard Marshal —
   // either an explicit admin flag, or a future rank above the current
   // ceiling of 5 (none exist yet, so that half is forward-compatible dead
@@ -308,9 +310,17 @@ export default async function DriveDetailPage({
     userRank = profile?.current_rank ?? null;
     userIsMit = profile?.is_mit ?? false;
     isMarshal = profile?.is_marshal ?? false;
-    isSuperUser = (profile?.is_admin ?? false) || (profile?.current_rank ?? 0) > 5;
+    isAdmin = profile?.is_admin ?? false;
+    isSuperUser = isAdmin || (profile?.current_rank ?? 0) > 5;
     myRegistration = existing ?? null;
   }
+
+  // Rank alone was never the authorization gate anywhere else in this app —
+  // is_marshal / is_admin are the real flags (an MIT member or a rank-5
+  // profile with is_marshal somehow unset are both handled specially
+  // elsewhere for exactly this reason), so "Marshal or Admin" here means
+  // those flags, not current_rank === 5.
+  const canReviewReports = isMarshal || isAdmin;
 
   const requiredRank = CLUB_CONFIG.ranks.find((r) => r.level === drive.target_rank);
   const userRankTitle = CLUB_CONFIG.ranks.find((r) => r.level === userRank)?.title;
@@ -349,6 +359,24 @@ export default async function DriveDetailPage({
     .overrideTypes<TripReportCardData[], { merge: false }>();
 
   const tripReports = tripReportsData ?? [];
+
+  // Only fetched at all when the viewer can actually act on it — a plain
+  // member has no use for (and shouldn't need a round-trip revealing) the
+  // moderation queue for this drive.
+  let pendingReports: PendingReport[] = [];
+  if (canReviewReports) {
+    const { data: pendingData } = await supabase
+      .from("trip_reports")
+      .select(
+        `id, report_text,
+         author:profiles!trip_reports_author_id_fkey(username, full_name, avatar_url)`,
+      )
+      .eq("drive_id", id)
+      .eq("is_approved", false)
+      .order("created_at", { ascending: false })
+      .overrideTypes<PendingReport[], { merge: false }>();
+    pendingReports = pendingData ?? [];
+  }
 
   const hasSupervisingMarshal = supports.some((r) => r.user?.current_rank === 5);
 
@@ -647,6 +675,8 @@ export default async function DriveDetailPage({
           </ul>
         </div>
       </section>
+
+      {canReviewReports && <PendingReportsReview reports={pendingReports} />}
 
       <section className="flex flex-col gap-4 rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/30 p-5 shadow-sm sm:p-6">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">

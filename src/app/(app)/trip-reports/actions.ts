@@ -64,6 +64,18 @@ export async function submitTripReport(
     };
   }
 
+  // Same client, one extra cheap read — not worth spinning up the separate
+  // anon-key client getAppSettings() uses elsewhere, since this action
+  // already has a session-bound one open for the insert right below.
+  // Defaults to requiring approval (the conservative, pre-existing
+  // behavior) if the flag can't be read for any reason.
+  const { data: settings } = await supabase
+    .from("app_settings")
+    .select("require_trip_report_approval")
+    .eq("id", 1)
+    .maybeSingle();
+  const requireApproval = settings?.require_trip_report_approval ?? true;
+
   const { data: report, error: insertError } = await supabase
     .from("trip_reports")
     .insert({
@@ -71,7 +83,7 @@ export async function submitTripReport(
       author_id: user.id,
       report_text: reportText,
       photos: photos.length > 0 ? photos : null,
-      is_approved: false,
+      is_approved: !requireApproval,
     })
     .select("id")
     .single();
@@ -101,11 +113,15 @@ export async function submitTripReport(
   }
 
   revalidatePath("/trip-reports");
+  if (driveId) {
+    revalidatePath(`/drives/${driveId}`);
+  }
 
   return {
     status: "success",
-    message:
-      "Report submitted! A marshal will review it before it appears on the community feed.",
+    message: requireApproval
+      ? "Report submitted! A marshal will review it before it appears on the community feed."
+      : "Report submitted and live on the community feed!",
   };
 }
 
@@ -171,4 +187,57 @@ export async function linkTripReportToDrive(
     status: "success",
     message: driveId ? "Report attached to drive." : "Report detached from drive.",
   };
+}
+
+export type ApproveReportState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+};
+
+/** Marshal or Admin only, re-derived server-side. Rank alone was never the
+ * gate anywhere else in this app — `is_marshal`/`is_admin` are the real
+ * authorization flags (a rank-5 profile without is_marshal set, or an MIT
+ * member, are both handled specially elsewhere for exactly this reason),
+ * so this checks those rather than current_rank. */
+export async function approveTripReport(reportId: string): Promise<ApproveReportState> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", message: "You need to be signed in." };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_marshal, is_admin")
+    .eq("id", user.id)
+    .single();
+
+  if (!profile?.is_marshal && !profile?.is_admin) {
+    return { status: "error", message: "Only Marshals or Admins can approve trip reports." };
+  }
+
+  const { data: report, error } = await supabase
+    .from("trip_reports")
+    .update({ is_approved: true })
+    .eq("id", reportId)
+    .select("drive_id")
+    .single();
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [approveTripReport]:", error);
+    return { status: "error", message: "Couldn't approve this report. Please try again." };
+  }
+
+  revalidatePath("/trip-reports");
+  revalidatePath(`/trip-reports/${reportId}`);
+  if (report?.drive_id) {
+    revalidatePath(`/drives/${report.drive_id}`);
+  }
+
+  return { status: "success", message: "Report approved." };
 }

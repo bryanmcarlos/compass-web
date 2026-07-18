@@ -144,3 +144,45 @@ export async function updateAppSettings(
     };
   }
 }
+
+export type ToggleModerationState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+  enabled?: boolean;
+};
+
+/** A separate, single-purpose action rather than folding this into
+ * updateAppSettings — this toggle saves instantly on click, it doesn't wait
+ * for a "Save Settings" button alongside unrelated branding fields. */
+export async function toggleTripReportModeration(
+  enabled: boolean,
+): Promise<ToggleModerationState> {
+  const { supabase, user, isAdmin } = await requireAdmin();
+
+  if (!user) {
+    return { status: "error", message: "You need to be signed in to update site settings." };
+  }
+  if (!isAdmin) {
+    return { status: "error", message: "Only Super Admins can update site settings." };
+  }
+
+  const { error } = await supabase
+    .from("app_settings")
+    .update({ require_trip_report_approval: enabled })
+    .eq("id", 1);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [toggleTripReportModeration]:", error);
+    return { status: "error", message: error.message };
+  }
+
+  revalidatePath("/", "layout");
+
+  return {
+    status: "success",
+    message: enabled
+      ? "Trip report moderation enabled."
+      : "Trip report moderation disabled — new reports go live instantly.",
+    enabled,
+  };
+}
