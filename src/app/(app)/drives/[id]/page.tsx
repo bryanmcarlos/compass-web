@@ -19,6 +19,8 @@ import {
   Settings,
   Tent,
   Megaphone,
+  Mountain,
+  PenLine,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import {
@@ -32,6 +34,7 @@ import { RankBadge } from "@/components/club/RankBadge";
 import { RegisterDriveForm } from "@/components/club/RegisterDriveForm";
 import { UnregisterButton } from "@/components/club/UnregisterButton";
 import { CopyRosterButton } from "@/components/club/CopyRosterButton";
+import { TripReportCard, type TripReportCardData } from "@/components/club/TripReportCard";
 import { CLUB_CONFIG } from "@/lib/constants";
 import { formatDate, formatTime } from "@/lib/format";
 import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
@@ -330,6 +333,23 @@ export default async function DriveDetailPage({
   const supports = allRegistrants.filter((r) => r.role === "Support");
   const drivers = allRegistrants.filter((r) => r.role === "Driver");
 
+  // Only approved reports — same rule as the public feed. An unapproved
+  // report about this drive isn't hidden from the world, it's just not
+  // shown here yet either; its author can already see it from their own
+  // profile/the moderation queue.
+  const { data: tripReportsData } = await supabase
+    .from("trip_reports")
+    .select(
+      `id, report_text, photos, created_at, is_approved,
+       author:profiles!trip_reports_author_id_fkey(username, full_name, avatar_url, current_rank)`,
+    )
+    .eq("drive_id", id)
+    .eq("is_approved", true)
+    .order("created_at", { ascending: false })
+    .overrideTypes<TripReportCardData[], { merge: false }>();
+
+  const tripReports = tripReportsData ?? [];
+
   const hasSupervisingMarshal = supports.some((r) => r.user?.current_rank === 5);
 
   const slotCount = Math.max(drive.max_drivers, drivers.length);
@@ -626,6 +646,40 @@ export default async function DriveDetailPage({
             ))}
           </ul>
         </div>
+      </section>
+
+      <section className="flex flex-col gap-4 rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/30 p-5 shadow-sm sm:p-6">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
+          <Mountain className="h-4 w-4 text-forest" />
+          Trip Reports for this Drive
+        </h2>
+
+        {tripReports.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-sand px-5 py-8 text-center">
+            <p className="max-w-sm text-sm text-charcoal-light/80">
+              No trip reports filed for this adventure yet. Be the first to
+              share yours!
+            </p>
+            <Link
+              href={`/trip-reports/new?driveId=${drive.id}`}
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90"
+            >
+              <PenLine className="h-4 w-4" />
+              Share a Trip Report
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {tripReports.map((report) => (
+              <TripReportCard
+                key={report.id}
+                report={report}
+                linkToDetail
+                showDriveContext={false}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {drive.status !== "Scheduled" ? (

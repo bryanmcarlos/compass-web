@@ -42,9 +42,8 @@ export async function submitTripReport(
   const reportText = String(formData.get("reportText") ?? "").trim();
   const photoUrlsRaw = String(formData.get("photoUrls") ?? "");
 
-  if (!driveId) {
-    return { status: "error", message: "Choose which drive this report is for." };
-  }
+  // A drive is optional — a report can stand on its own (drive_id null) or
+  // be tied to a specific completed drive.
   if (reportText.length < 20) {
     return {
       status: "error",
@@ -68,7 +67,7 @@ export async function submitTripReport(
   const { data: report, error: insertError } = await supabase
     .from("trip_reports")
     .insert({
-      drive_id: driveId,
+      drive_id: driveId || null,
       author_id: user.id,
       report_text: reportText,
       photos: photos.length > 0 ? photos : null,
@@ -92,7 +91,7 @@ export async function submitTripReport(
   const { error: auditError } = await supabase.from("audit_logs").insert({
     actor_id: user.id,
     action: "SUBMIT_TRIP_REPORT",
-    details: { trip_report_id: report.id, drive_id: driveId },
+    details: { trip_report_id: report.id, drive_id: driveId || null },
   });
   if (auditError) {
     console.error(
@@ -107,5 +106,69 @@ export async function submitTripReport(
     status: "success",
     message:
       "Report submitted! A marshal will review it before it appears on the community feed.",
+  };
+}
+
+export type LinkDriveState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+};
+
+/** Retroactively attaches (or detaches, when `driveId` is null) a trip
+ * report to a drive. Restricted to the report's own author or a Super
+ * Admin — re-derived server-side from the caller's session, never trusted
+ * from the client. */
+export async function linkTripReportToDrive(
+  reportId: string,
+  driveId: string | null,
+): Promise<LinkDriveState> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", message: "You need to be signed in." };
+  }
+
+  const [{ data: report }, { data: profile }] = await Promise.all([
+    supabase.from("trip_reports").select("author_id").eq("id", reportId).single(),
+    supabase.from("profiles").select("is_admin").eq("id", user.id).single(),
+  ]);
+
+  if (!report) {
+    return { status: "error", message: "Couldn't find that trip report." };
+  }
+
+  const isAuthor = report.author_id === user.id;
+  const isAdmin = profile?.is_admin ?? false;
+  if (!isAuthor && !isAdmin) {
+    return {
+      status: "error",
+      message: "Only the report's author or a Super Admin can attach it to a drive.",
+    };
+  }
+
+  const { error } = await supabase
+    .from("trip_reports")
+    .update({ drive_id: driveId })
+    .eq("id", reportId);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [linkTripReportToDrive]:", error);
+    return { status: "error", message: "Couldn't update this report. Please try again." };
+  }
+
+  revalidatePath(`/trip-reports/${reportId}`);
+  revalidatePath("/trip-reports");
+  if (driveId) {
+    revalidatePath(`/drives/${driveId}`);
+  }
+
+  return {
+    status: "success",
+    message: driveId ? "Report attached to drive." : "Report detached from drive.",
   };
 }

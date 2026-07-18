@@ -10,10 +10,8 @@ import {
   LoaderCircle,
   CircleCheck,
   CircleAlert,
-  CalendarCheck,
 } from "lucide-react";
 import { submitTripReport, type SubmitReportState } from "@/app/(app)/trip-reports/actions";
-import { EmptyState } from "@/components/club/StateMessage";
 import { formatDate } from "@/lib/format";
 
 export type CompletedDrive = {
@@ -28,8 +26,14 @@ const initialState: SubmitReportState = { status: "idle", message: null };
 
 export function SubmitReportForm({
   completedDrives,
+  initialDriveId,
 }: {
   completedDrives: CompletedDrive[];
+  /** Prefills the drive dropdown, e.g. arriving via "Share yours" from a
+   * specific drive's page. Falls back to the placeholder if it isn't one of
+   * `completedDrives` (drive not yet marked Completed, typo'd id, etc.) —
+   * the member can still pick manually, nothing breaks. */
+  initialDriveId?: string;
 }) {
   const [state, formAction, pending] = useActionState(
     submitTripReport,
@@ -42,16 +46,6 @@ export function SubmitReportForm({
       formRef.current?.reset();
     }
   }, [state.status]);
-
-  if (completedDrives.length === 0) {
-    return (
-      <EmptyState
-        icon={CalendarCheck}
-        title="No completed drives yet"
-        message="You can share a trip report once a drive you attended has been marked completed."
-      />
-    );
-  }
 
   return (
     <form
@@ -68,19 +62,24 @@ export function SubmitReportForm({
           <select
             id="driveId"
             name="driveId"
-            required
-            defaultValue=""
+            defaultValue={
+              initialDriveId && completedDrives.some((d) => d.id === initialDriveId)
+                ? initialDriveId
+                : ""
+            }
             className="w-full appearance-none rounded-lg border border-sand bg-off-white py-2 pr-9 pl-9 text-base text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
           >
-            <option value="" disabled>
-              Select a completed drive…
-            </option>
-            {completedDrives.map((drive) => (
-              <option key={drive.id} value={drive.id}>
-                {drive.title} — {formatDate(drive.drive_date)} ·{" "}
-                {drive.location}
-              </option>
-            ))}
+            <option value="">Not tied to a specific drive</option>
+            {completedDrives.length > 0 && (
+              <optgroup label="Completed Drives">
+                {completedDrives.map((drive) => (
+                  <option key={drive.id} value={drive.id}>
+                    {drive.title} — {formatDate(drive.drive_date)} ·{" "}
+                    {drive.location}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
           <ChevronDown className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-charcoal-light/60" />
         </div>

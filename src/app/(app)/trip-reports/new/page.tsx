@@ -7,7 +7,12 @@ import {
   type CompletedDrive,
 } from "@/components/club/SubmitReportForm";
 
-export default async function NewTripReportPage() {
+export default async function NewTripReportPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ driveId?: string }>;
+}) {
+  const { driveId } = await searchParams;
   const supabase = await createClient();
 
   const {
@@ -47,7 +52,7 @@ export default async function NewTripReportPage() {
       {error ? (
         <ErrorState message="Couldn't load completed drives right now. Please try again shortly." />
       ) : (
-        <SubmitReportForm completedDrives={completedDrives} />
+        <SubmitReportForm completedDrives={completedDrives} initialDriveId={driveId} />
       )}
     </div>
   );
