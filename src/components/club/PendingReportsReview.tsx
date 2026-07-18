@@ -85,7 +85,9 @@ export function PendingReportsReview({ reports }: { reports: PendingReport[] }) 
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-charcoal">{authorName}</p>
-                  <p className="text-sm text-charcoal-light/80">{snippet(report.report_text)}</p>
+                  <p className="text-sm break-words text-charcoal-light/80">
+                    {snippet(report.report_text)}
+                  </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3">

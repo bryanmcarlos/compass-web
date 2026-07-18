@@ -36,10 +36,17 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full max-w-full overflow-x-hidden antialiased`}
       style={{ "--color-primary": primaryColor } as React.CSSProperties}
     >
-      <body className="min-h-full flex flex-col">
+      {/* This is a backstop, not the fix — it clips whatever still manages
+          to overflow rather than addressing why. The actual cause on trip
+          report pages was missing overflow-wrap handling on markdown-
+          rendered free text (see TripReportCard), fixed separately. Keeping
+          this here too as defense against the next long-unbroken-string
+          surprise, since new user-generated text fields will keep showing
+          up in this app. */}
+      <body className="flex min-h-full max-w-full flex-col overflow-x-hidden">
         <ThemeSettingsProvider logoUrl={logoUrl}>
           {children}
         </ThemeSettingsProvider>

@@ -81,22 +81,35 @@ function PhotoGallery({ photos, reportAuthor }: { photos: string[]; reportAuthor
 // each element needs (rather than `{...props}`-spreading everything blindly)
 // keeps it from leaking onto the actual element as an invalid
 // `node="[object Object]"` attribute.
+// break-words matters more than it looks like it should here — this app's
+// trip reports are full of long unbroken tokens (bare URLs, concatenated
+// phone-number/coordinate strings from the original scraped data) that
+// don't contain a space for the browser to wrap on. Without it, one long
+// token forces its card wider than its grid/flex track, and that's exactly
+// what pushes the whole page into horizontal scroll — not a viewport bug,
+// a missing wrap rule on the one place long free text actually renders.
 const markdownComponents: Components = {
-  p: (props) => <p className="mb-3 leading-relaxed last:mb-0">{props.children}</p>,
+  p: (props) => (
+    <p className="mb-3 leading-relaxed break-words last:mb-0">{props.children}</p>
+  ),
   strong: (props) => (
     <strong className="font-semibold text-charcoal">{props.children}</strong>
   ),
-  ul: (props) => <ul className="mb-3 list-disc pl-5 last:mb-0">{props.children}</ul>,
-  ol: (props) => <ol className="mb-3 list-decimal pl-5 last:mb-0">{props.children}</ol>,
-  li: (props) => <li className="mb-1">{props.children}</li>,
+  ul: (props) => (
+    <ul className="mb-3 list-disc pl-5 break-words last:mb-0">{props.children}</ul>
+  ),
+  ol: (props) => (
+    <ol className="mb-3 list-decimal pl-5 break-words last:mb-0">{props.children}</ol>
+  ),
+  li: (props) => <li className="mb-1 break-words">{props.children}</li>,
   blockquote: (props) => (
-    <blockquote className="mb-3 border-l-2 border-sand pl-3 text-charcoal-light/70 italic last:mb-0">
+    <blockquote className="mb-3 border-l-2 border-sand pl-3 text-charcoal-light/70 italic break-words last:mb-0">
       {props.children}
     </blockquote>
   ),
   a: (props) => (
     <a
-      className="font-medium text-forest hover:underline"
+      className="font-medium text-forest break-all hover:underline"
       target="_blank"
       rel="noopener noreferrer"
       href={props.href}
@@ -122,7 +135,7 @@ export function TripReportCard({
   const authorName = report.author?.full_name ?? report.author?.username ?? "A club member";
 
   const body = (
-    <article className="group relative flex h-full flex-col gap-4 overflow-hidden rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/40 p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
+    <article className="group relative flex h-full min-w-0 flex-col gap-4 overflow-hidden rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/40 p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
       <div className="flex items-start gap-3">
         <Avatar name={authorName} avatarUrl={report.author?.avatar_url ?? null} />
         <div className="flex min-w-0 flex-1 flex-col">
