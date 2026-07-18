@@ -253,10 +253,13 @@ function SlotRow({
 
 export default async function DriveDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ reportSubmitted?: string }>;
 }) {
   const { id } = await params;
+  const { reportSubmitted } = await searchParams;
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -426,6 +429,16 @@ export default async function DriveDetailPage({
         <ArrowLeft className="h-4 w-4" />
         Back to Drives
       </Link>
+
+      {reportSubmitted === "pending" && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-2xl border border-forest/30 bg-forest/10 px-4 py-3 text-sm font-medium text-forest-dark"
+        >
+          <CheckSquare className="h-4 w-4 shrink-0" />
+          Trip report submitted successfully and is pending Marshal review!
+        </div>
+      )}
 
       <section className="overflow-hidden rounded-2xl border border-sand bg-off-white shadow-sm">
         <div className="relative h-48 w-full sm:h-64">
@@ -687,28 +700,47 @@ export default async function DriveDetailPage({
         {tripReports.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-sand px-5 py-8 text-center">
             <p className="max-w-sm text-sm text-charcoal-light/80">
-              No trip reports filed for this adventure yet. Be the first to
-              share yours!
+              {myRegistration
+                ? "No trip reports filed for this adventure yet. Be the first to share yours!"
+                : "No trip reports filed for this adventure yet."}
             </p>
-            <Link
-              href={`/trip-reports/new?driveId=${drive.id}`}
-              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90"
-            >
-              <PenLine className="h-4 w-4" />
-              Share a Trip Report
-            </Link>
+            {myRegistration ? (
+              <Link
+                href={`/trip-reports/new?driveId=${drive.id}`}
+                className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90"
+              >
+                <PenLine className="h-4 w-4" />
+                Share a Trip Report
+              </Link>
+            ) : (
+              <p className="text-xs text-charcoal-light/60">
+                Only registered participants can file a report for this
+                drive.
+              </p>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {tripReports.map((report) => (
-              <TripReportCard
-                key={report.id}
-                report={report}
-                linkToDetail
-                showDriveContext={false}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {tripReports.map((report) => (
+                <TripReportCard
+                  key={report.id}
+                  report={report}
+                  linkToDetail
+                  showDriveContext={false}
+                />
+              ))}
+            </div>
+            {myRegistration && (
+              <Link
+                href={`/trip-reports/new?driveId=${drive.id}`}
+                className="flex w-fit items-center gap-2 self-center rounded-lg border border-primary/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
+              >
+                <PenLine className="h-4 w-4" />
+                Share Your Trip Report
+              </Link>
+            )}
+          </>
         )}
       </section>
 

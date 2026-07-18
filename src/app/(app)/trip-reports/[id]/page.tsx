@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Mountain } from "lucide-react";
+import { ArrowLeft, Mountain, CheckSquare } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { TripReportCard, type TripReportCardData } from "@/components/club/TripReportCard";
 import { AttachToDriveControl, type PastDrive } from "@/components/club/AttachToDriveControl";
@@ -12,10 +12,13 @@ type TripReportDetail = TripReportCardData & {
 
 export default async function TripReportDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ reportSubmitted?: string }>;
 }) {
   const { id } = await params;
+  const { reportSubmitted } = await searchParams;
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -80,6 +83,25 @@ export default async function TripReportDetailPage({
         <ArrowLeft className="h-4 w-4" />
         Back to Trip Reports
       </Link>
+
+      {reportSubmitted === "pending" && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-2xl border border-forest/30 bg-forest/10 px-4 py-3 text-sm font-medium text-forest-dark"
+        >
+          <CheckSquare className="h-4 w-4 shrink-0" />
+          Trip report submitted successfully and is pending Marshal review!
+        </div>
+      )}
+      {reportSubmitted === "live" && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-2xl border border-forest/30 bg-forest/10 px-4 py-3 text-sm font-medium text-forest-dark"
+        >
+          <CheckSquare className="h-4 w-4 shrink-0" />
+          Trip report submitted and live on the community feed!
+        </div>
+      )}
 
       <header className="flex items-center gap-2">
         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-forest/10 text-forest">

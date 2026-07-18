@@ -1,11 +1,15 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 
 export type SubmitReportState = {
   status: "idle" | "error" | "success";
   message: string | null;
+  /** Set when the error is "you already have a report for this drive" —
+   * lets the UI link straight to it instead of just naming the problem. */
+  existingReportId?: string | null;
 };
 
 function isValidHttpUrl(value: string) {
@@ -64,6 +68,45 @@ export async function submitTripReport(
     };
   }
 
+  // A floating report (no drive_id) has nothing to be "registered for" —
+  // both checks below only apply once a specific drive is targeted.
+  if (driveId) {
+    const { data: registration } = await supabase
+      .from("drive_registrations")
+      .select("id")
+      .eq("drive_id", driveId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!registration) {
+      return {
+        status: "error",
+        message:
+          "Access Denied: You can only submit a trip report for a drive you officially registered for.",
+      };
+    }
+
+    // Explicit pre-check for a precise, actionable message — the unique
+    // constraint on (author_id, drive_id) is still the real enforcement and
+    // stays as a fallback below for the race-condition case where two
+    // submissions for the same drive land at nearly the same instant.
+    const { data: existingReport } = await supabase
+      .from("trip_reports")
+      .select("id")
+      .eq("drive_id", driveId)
+      .eq("author_id", user.id)
+      .maybeSingle();
+
+    if (existingReport) {
+      return {
+        status: "error",
+        message:
+          "You have already submitted a trip report for this drive. You can view it from your existing report.",
+        existingReportId: existingReport.id,
+      };
+    }
+  }
+
   // Same client, one extra cheap read — not worth spinning up the separate
   // anon-key client getAppSettings() uses elsewhere, since this action
   // already has a session-bound one open for the insert right below.
@@ -89,12 +132,19 @@ export async function submitTripReport(
     .single();
 
   if (insertError) {
+    if (insertError.code === "23505") {
+      // Race-condition fallback — the pre-check above didn't catch it
+      // (concurrent submission), but we don't have the existing report's id
+      // handy here without another query, so this path just names the
+      // problem rather than also linking to it.
+      return {
+        status: "error",
+        message: "You have already submitted a trip report for this drive.",
+      };
+    }
     return {
       status: "error",
-      message:
-        insertError.code === "23505"
-          ? "You've already submitted a report for this drive."
-          : "Couldn't save your report right now. Please try again.",
+      message: "Couldn't save your report right now. Please try again.",
     };
   }
 
@@ -117,12 +167,23 @@ export async function submitTripReport(
     revalidatePath(`/drives/${driveId}`);
   }
 
-  return {
-    status: "success",
-    message: requireApproval
-      ? "Report submitted! A marshal will review it before it appears on the community feed."
-      : "Report submitted and live on the community feed!",
-  };
+  // redirect() throws a framework-handled control-flow exception — it must
+  // stay outside any try/catch (none wraps this function), or it would be
+  // caught and reported as a real error instead of performing the
+  // navigation. Same pattern as createDrive.
+  //
+  // Moderation on: land back on the drive (there's context to read there —
+  // roster, other reports); with no drive to land on, fall back to the
+  // report's own page, which its own author can always view even pending.
+  // Moderation off: straight to the now-live report.
+  if (requireApproval) {
+    redirect(
+      driveId
+        ? `/drives/${driveId}?reportSubmitted=pending`
+        : `/trip-reports/${report.id}?reportSubmitted=pending`,
+    );
+  }
+  redirect(`/trip-reports/${report.id}?reportSubmitted=live`);
 }
 
 export type LinkDriveState = {
@@ -230,7 +291,21 @@ export async function approveTripReport(reportId: string): Promise<ApproveReport
 
   if (error) {
     console.error("SERVER ACTION ERROR [approveTripReport]:", error);
-    return { status: "error", message: "Couldn't approve this report. Please try again." };
+    // Most likely cause: no RLS UPDATE policy yet lets a Marshal/Admin write
+    // to a trip_reports row they don't own (see the migration this app's
+    // other cross-user write features all needed) — that surfaces here as
+    // PGRST116 ("no rows returned") because the UPDATE silently matched 0
+    // rows rather than as a permission-denied error. Returning the real
+    // message instead of a generic string, consistent with the rest of this
+    // codebase's Server Actions, so this doesn't have to be re-diagnosed
+    // blind next time.
+    return {
+      status: "error",
+      message:
+        error.code === "PGRST116"
+          ? "Couldn't approve this report — the database rejected the update (likely a missing permissions policy, not a client bug). See server logs / ask an admin to check RLS on trip_reports."
+          : error.message,
+    };
   }
 
   revalidatePath("/trip-reports");

@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState } from "react";
+import Link from "next/link";
 import {
   Route,
   ChevronDown,
@@ -8,7 +9,6 @@ import {
   ImagePlus,
   Send,
   LoaderCircle,
-  CircleCheck,
   CircleAlert,
 } from "lucide-react";
 import { submitTripReport, type SubmitReportState } from "@/app/(app)/trip-reports/actions";
@@ -39,17 +39,15 @@ export function SubmitReportForm({
     submitTripReport,
     initialState,
   );
-  const formRef = useRef<HTMLFormElement>(null);
 
-  useEffect(() => {
-    if (state.status === "success") {
-      formRef.current?.reset();
-    }
-  }, [state.status]);
+  // No form.reset()-on-success handling here anymore — a successful
+  // submission now redirects away entirely (to the drive page or the new
+  // report itself), handled server-side in the Action, so this component
+  // never actually observes a "success" state to react to. Only errors
+  // ever populate `state` in practice.
 
   return (
     <form
-      ref={formRef}
       action={formAction}
       className="flex flex-col gap-5 rounded-2xl border border-sand bg-off-white p-6 shadow-sm sm:p-8"
     >
@@ -137,21 +135,27 @@ export function SubmitReportForm({
         </div>
       </div>
 
-      {state.status !== "idle" && state.message && (
+      {state.status === "error" && state.message && (
         <div
           role="alert"
-          className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
-            state.status === "error"
-              ? "border-error/30 bg-error-bg text-error"
-              : "border-forest/30 bg-forest/10 text-forest-dark"
-          }`}
+          className="flex items-start gap-2 rounded-lg border border-error/30 bg-error-bg p-3 text-sm text-error"
         >
-          {state.status === "error" ? (
-            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          ) : (
-            <CircleCheck className="mt-0.5 h-4 w-4 shrink-0" />
-          )}
-          <span>{state.message}</span>
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {state.message}
+            {state.existingReportId && (
+              <>
+                {" "}
+                <Link
+                  href={`/trip-reports/${state.existingReportId}`}
+                  className="font-semibold underline hover:no-underline"
+                >
+                  View your existing report
+                </Link>
+                .
+              </>
+            )}
+          </span>
         </div>
       )}
 
