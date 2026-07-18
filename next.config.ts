@@ -7,6 +7,17 @@ const supabaseHostname = process.env.NEXT_PUBLIC_SUPABASE_URL
   : undefined;
 
 const nextConfig: NextConfig = {
+  // Server Actions default to a 1MB request body limit — nowhere near
+  // enough for a photo upload. validateImageFile() already caps a single
+  // image at 5MB; 6mb leaves headroom for multipart boundary/header
+  // overhead on top of that (per Next's own sizing guidance), and each
+  // dropped photo uploads via its own Server Action call, so this only
+  // ever needs to cover one image at a time, not a whole batch.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "6mb",
+    },
+  },
   images: {
     remotePatterns: supabaseHostname
       ? [

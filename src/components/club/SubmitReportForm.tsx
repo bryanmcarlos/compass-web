@@ -1,17 +1,17 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import {
   Route,
   ChevronDown,
   NotebookPen,
-  ImagePlus,
   Send,
   LoaderCircle,
   CircleAlert,
 } from "lucide-react";
 import { submitTripReport, type SubmitReportState } from "@/app/(app)/trip-reports/actions";
+import { PhotoDropzone } from "@/components/club/PhotoDropzone";
 import { formatDate } from "@/lib/format";
 
 export type CompletedDrive = {
@@ -39,6 +39,7 @@ export function SubmitReportForm({
     submitTripReport,
     initialState,
   );
+  const [photosUploading, setPhotosUploading] = useState(false);
 
   // No form.reset()-on-success handling here anymore — a successful
   // submission now redirects away entirely (to the drive page or the new
@@ -108,32 +109,7 @@ export function SubmitReportForm({
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor="photoUrls"
-          className="text-sm font-medium text-charcoal"
-        >
-          Photo URLs{" "}
-          <span className="font-normal text-charcoal-light/60">
-            (optional)
-          </span>
-        </label>
-        <p className="text-xs text-charcoal-light/70">
-          One image link per line — hosted on Cloudinary, Imgur, etc.
-        </p>
-        <div className="relative">
-          <ImagePlus className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-charcoal-light/60" />
-          <textarea
-            id="photoUrls"
-            name="photoUrls"
-            rows={3}
-            placeholder={
-              "https://res.cloudinary.com/your-club/trail-1.jpg\nhttps://i.imgur.com/example.jpg"
-            }
-            className="w-full resize-y rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
-          />
-        </div>
-      </div>
+      <PhotoDropzone onUploadingChange={setPhotosUploading} />
 
       {state.status === "error" && state.message && (
         <div
@@ -159,9 +135,16 @@ export function SubmitReportForm({
         </div>
       )}
 
+      {photosUploading && (
+        <p className="flex items-center gap-1.5 text-xs text-charcoal-light/60">
+          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          Photos are still uploading…
+        </p>
+      )}
+
       <button
         type="submit"
-        disabled={pending}
+        disabled={pending || photosUploading}
         className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-70"
       >
         {pending ? (

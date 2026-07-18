@@ -2,7 +2,18 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { v2 as cloudinary } from "cloudinary";
 import { createClient } from "@/utils/supabase/server";
+import { validateImageFile } from "@/lib/imageUpload";
+
+// Configured once at module scope from server-only env vars — never sent to
+// the client, and this file has no "use client" escape hatch for it to leak
+// through even accidentally.
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 export type SubmitReportState = {
   status: "idle" | "error" | "success";
@@ -18,6 +29,69 @@ function isValidHttpUrl(value: string) {
     return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
+  }
+}
+
+export type UploadImageState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+  url?: string | null;
+};
+
+/** One call per photo — the dropzone invokes this immediately for each
+ * file as it's dropped/selected, not deferred to the report's final
+ * submit. Signed in only; no drive/author check, since a photo isn't tied
+ * to anything yet at upload time (the report it ends up attached to is
+ * validated separately by submitTripReport). CLOUDINARY_API_SECRET is only
+ * ever read here, server-side — never part of any prop, form field, or
+ * response sent to the client. */
+export async function uploadImageToCloudinary(formData: FormData): Promise<UploadImageState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", message: "You need to be signed in to upload photos." };
+  }
+
+  const validation = validateImageFile(formData.get("file"));
+  if (!validation.ok) {
+    return { status: "error", message: validation.message };
+  }
+
+  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+    console.error(
+      "SERVER ACTION ERROR [uploadImageToCloudinary]: CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET are not set.",
+    );
+    return {
+      status: "error",
+      message: "Photo uploads aren't configured on this server yet — ask an admin to set up Cloudinary.",
+    };
+  }
+
+  const buffer = Buffer.from(await validation.file.arrayBuffer());
+
+  try {
+    const result = await new Promise<{ secure_url: string }>((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder: "compass_trip_reports" },
+        (error, uploadResult) => {
+          if (error || !uploadResult) {
+            reject(error ?? new Error("Cloudinary returned no result."));
+            return;
+          }
+          resolve(uploadResult);
+        },
+      );
+      uploadStream.end(buffer);
+    });
+
+    return { status: "success", message: "Photo uploaded.", url: result.secure_url };
+  } catch (err) {
+    console.error("SERVER ACTION ERROR [uploadImageToCloudinary]:", err);
+    return { status: "error", message: "Couldn't upload this photo. Please try again." };
   }
 }
 
@@ -44,7 +118,6 @@ export async function submitTripReport(
 
   const driveId = String(formData.get("driveId") ?? "").trim();
   const reportText = String(formData.get("reportText") ?? "").trim();
-  const photoUrlsRaw = String(formData.get("photoUrls") ?? "");
 
   // A drive is optional — a report can stand on its own (drive_id null) or
   // be tied to a specific completed drive.
@@ -55,11 +128,19 @@ export async function submitTripReport(
     };
   }
 
-  const photos = photoUrlsRaw
-    .split(/\r?\n/)
-    .map((url) => url.trim())
+  // One hidden `photoUrls` input per successfully-uploaded photo (the
+  // dropzone already uploaded each to Cloudinary individually and only
+  // renders the hidden input once that succeeds) — getAll rather than the
+  // old single newline-joined field.
+  const photos = formData
+    .getAll("photoUrls")
+    .map((value) => String(value).trim())
     .filter(Boolean);
 
+  // The dropzone only ever produces real Cloudinary secure_urls, so this
+  // should never actually fire in normal use — kept as defense-in-depth
+  // against a tampered request, same as every other Server Action here
+  // that never trusts client-submitted data at face value.
   const invalidUrl = photos.find((url) => !isValidHttpUrl(url));
   if (invalidUrl) {
     return {
