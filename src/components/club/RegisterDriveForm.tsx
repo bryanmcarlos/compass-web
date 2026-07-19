@@ -18,7 +18,7 @@ import type { RegistrationRole } from "@/lib/driveRoles";
 
 const initialState: RegisterDriveState = { status: "idle", message: null };
 
-const WAIVER_TEXT =
+export const WAIVER_TEXT =
   "I am fully aware of the dangers & risks inherent in participating in this event. I am physically fit and have agreed to participate voluntarily out of my will and volition. I agree to give up all my rights to take any legal action or sue anyone associated with the COMPASS Committee.";
 
 export function RegisterDriveForm({

@@ -38,6 +38,7 @@ import { UnregisterButton } from "@/components/club/UnregisterButton";
 import { CopyRosterButton } from "@/components/club/CopyRosterButton";
 import { TripReportCard, type TripReportCardData } from "@/components/club/TripReportCard";
 import { PendingReportsReview, type PendingReport } from "@/components/club/PendingReportsReview";
+import { AssignDriverSlotModal } from "@/components/club/AssignDriverSlotModal";
 import { CLUB_CONFIG } from "@/lib/constants";
 import { formatDate, formatTime } from "@/lib/format";
 import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
@@ -214,11 +215,17 @@ function SlotRow({
   registration,
   isSuperUser,
   driveTitle,
+  driveId,
+  targetRank,
+  hasSupervisingMarshal,
 }: {
   index: number;
   registration: Registration | undefined;
   isSuperUser: boolean;
   driveTitle: string;
+  driveId: string;
+  targetRank: number;
+  hasSupervisingMarshal: boolean;
 }) {
   return (
     <li className="flex items-center gap-3 rounded-lg border border-sand px-3 py-2">
@@ -249,6 +256,14 @@ function SlotRow({
             </span>
           )}
         </>
+      ) : isSuperUser ? (
+        <AssignDriverSlotModal
+          driveId={driveId}
+          driveTitle={driveTitle}
+          slotLabel={`Driver Slot ${index + 1}`}
+          targetRank={targetRank}
+          hasSupervisingMarshal={hasSupervisingMarshal}
+        />
       ) : (
         <span className="flex items-center gap-1.5 text-sm text-charcoal-light/50 italic">
           <CircleDashed className="h-4 w-4" />
@@ -747,6 +762,9 @@ export default async function DriveDetailPage({
                 registration={drivers[i]}
                 isSuperUser={isSuperUser}
                 driveTitle={drive.title}
+                driveId={drive.id}
+                targetRank={drive.target_rank}
+                hasSupervisingMarshal={hasSupervisingMarshal}
               />
             ))}
           </ul>

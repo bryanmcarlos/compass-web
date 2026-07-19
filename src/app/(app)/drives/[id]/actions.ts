@@ -9,7 +9,7 @@ export type RegisterDriveState = {
   message: string | null;
 };
 
-async function hasSupervisingMarshal(
+export async function hasSupervisingMarshal(
   supabase: Awaited<ReturnType<typeof createClient>>,
   driveId: string,
 ) {

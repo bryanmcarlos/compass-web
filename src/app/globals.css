@@ -119,3 +119,17 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* First <dialog> in the app (AssignDriverSlotModal) — the UA default (a
+   plain white box, opaque black backdrop) clashes with the warm theme, and
+   the app's --color-* custom properties already flip for dark mode above,
+   so referencing them here keeps the modal in sync with that for free. */
+dialog {
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+
+dialog::backdrop {
+  background-color: color-mix(in srgb, var(--color-charcoal) 50%, transparent);
+}
