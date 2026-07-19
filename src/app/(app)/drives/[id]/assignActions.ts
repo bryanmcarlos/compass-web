@@ -93,7 +93,17 @@ export async function searchAssignableMembers(
   ]);
 
   if (usernameMatches.error || nameMatches.error) {
-    return { status: "error", message: "Couldn't search members right now. Please try again." };
+    const searchError = usernameMatches.error ?? nameMatches.error;
+    console.error(
+      "SERVER ACTION ERROR [searchAssignableMembers]:",
+      searchError?.message,
+      searchError?.details,
+      searchError?.hint,
+    );
+    return {
+      status: "error",
+      message: `Couldn't search members: ${searchError?.message}`,
+    };
   }
 
   const alreadyRegistered = new Set((registered.data ?? []).map((r) => r.user_id));
@@ -150,10 +160,34 @@ async function loadMemberAndValidateRole(
     ]);
 
   if (memberError || !member) {
-    return { ok: false, message: "Couldn't find that member." };
+    if (memberError) {
+      console.error(
+        "SERVER ACTION ERROR [loadMemberAndValidateRole → profiles select]:",
+        memberError.message,
+        memberError.details,
+        memberError.hint,
+      );
+    }
+    return {
+      ok: false,
+      message: memberError
+        ? `Couldn't load that member: ${memberError.message}`
+        : "Couldn't find that member.",
+    };
   }
   if (driveError || !drive) {
-    return { ok: false, message: "Couldn't find that drive." };
+    if (driveError) {
+      console.error(
+        "SERVER ACTION ERROR [loadMemberAndValidateRole → drives select]:",
+        driveError.message,
+        driveError.details,
+        driveError.hint,
+      );
+    }
+    return {
+      ok: false,
+      message: driveError ? `Couldn't load this drive: ${driveError.message}` : "Couldn't find that drive.",
+    };
   }
 
   const memberName = member.full_name ?? member.username;
@@ -208,7 +242,21 @@ async function syncProfileFields(
   }
 
   const { error } = await supabase.from("profiles").update(updates).eq("id", memberId);
-  return error ? " (couldn't save the updated contact/vehicle details to their profile)" : "";
+  if (error) {
+    // This is the call most likely to hit an RLS gap — it's the one place
+    // in this file writing to a *different* user's `profiles` row rather
+    // than the caller's own, or a per-drive row scoped by drive_id. Logging
+    // the real Postgres error (not just a generic warning) is what makes an
+    // RLS-policy-violation actually diagnosable instead of silently eaten.
+    console.error(
+      "SERVER ACTION ERROR [syncProfileFields → profiles update]:",
+      error.message,
+      error.details,
+      error.hint,
+    );
+    return ` (profile sync failed: ${error.message})`;
+  }
+  return "";
 }
 
 export async function assignMemberToSlot(
@@ -259,7 +307,16 @@ export async function assignMemberToSlot(
       .eq("role", "Driver");
 
     if (countError) {
-      return { status: "error", message: "Couldn't check available slots. Please try again." };
+      console.error(
+        "SERVER ACTION ERROR [driver-count check]:",
+        countError.message,
+        countError.details,
+        countError.hint,
+      );
+      return {
+        status: "error",
+        message: `Couldn't check available slots: ${countError.message}`,
+      };
     }
     if ((count ?? 0) >= check.maxDrivers) {
       return { status: "error", message: "This drive's driver slots are full." };
@@ -275,12 +332,19 @@ export async function assignMemberToSlot(
   });
 
   if (insertError) {
+    console.error(
+      "SERVER ACTION ERROR [assignMemberToSlot → drive_registrations insert]:",
+      insertError.code,
+      insertError.message,
+      insertError.details,
+      insertError.hint,
+    );
     return {
       status: "error",
       message:
         insertError.code === "23505"
           ? `${check.memberName} is already registered for this drive.`
-          : "Couldn't save this assignment. Please try again.",
+          : `Couldn't save this assignment: ${insertError.message}`,
     };
   }
 
@@ -352,7 +416,20 @@ export async function updateAssignedMember(
     .single();
 
   if (currentError || !currentRegistration) {
-    return { status: "error", message: "Couldn't find that registration." };
+    if (currentError) {
+      console.error(
+        "SERVER ACTION ERROR [updateAssignedMember → drive_registrations select]:",
+        currentError.message,
+        currentError.details,
+        currentError.hint,
+      );
+    }
+    return {
+      status: "error",
+      message: currentError
+        ? `Couldn't load that registration: ${currentError.message}`
+        : "Couldn't find that registration.",
+    };
   }
 
   const check = await loadMemberAndValidateRole(supabase, memberId, driveId, requestedRole);
@@ -371,7 +448,16 @@ export async function updateAssignedMember(
       .eq("role", "Driver");
 
     if (countError) {
-      return { status: "error", message: "Couldn't check available slots. Please try again." };
+      console.error(
+        "SERVER ACTION ERROR [driver-count check]:",
+        countError.message,
+        countError.details,
+        countError.hint,
+      );
+      return {
+        status: "error",
+        message: `Couldn't check available slots: ${countError.message}`,
+      };
     }
     if ((count ?? 0) >= check.maxDrivers) {
       return { status: "error", message: "This drive's driver slots are full." };
@@ -384,7 +470,16 @@ export async function updateAssignedMember(
     .eq("id", registrationId);
 
   if (updateError) {
-    return { status: "error", message: "Couldn't save these changes. Please try again." };
+    console.error(
+      "SERVER ACTION ERROR [updateAssignedMember → drive_registrations update]:",
+      updateError.message,
+      updateError.details,
+      updateError.hint,
+    );
+    return {
+      status: "error",
+      message: `Couldn't save these changes: ${updateError.message}`,
+    };
   }
 
   const syncWarning = await syncProfileFields(
