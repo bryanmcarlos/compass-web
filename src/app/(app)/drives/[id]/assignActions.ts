@@ -2,10 +2,21 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
-import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
+import { getAvailableRoles, ALL_REGISTRATION_ROLES, type RegistrationRole } from "@/lib/driveRoles";
 import { hasSupervisingMarshal } from "./actions";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
+/** Local-date (not UTC) "YYYY-MM-DD" — matches how drive_date is already
+ * treated elsewhere in this app (see formatDate's own local-time comment)
+ * rather than risking a UTC/local off-by-one at the day boundary. */
+function todayIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 async function requireSuperUser(supabase: SupabaseServerClient) {
   const {
@@ -156,7 +167,11 @@ async function loadMemberAndValidateRole(
         .select("username, full_name, current_rank, is_mit, mobile_number, car_details")
         .eq("id", memberId)
         .single(),
-      supabase.from("drives").select("target_rank, max_drivers").eq("id", driveId).single(),
+      supabase
+        .from("drives")
+        .select("target_rank, max_drivers, drive_date")
+        .eq("id", driveId)
+        .single(),
     ]);
 
   if (memberError || !member) {
@@ -192,12 +207,24 @@ async function loadMemberAndValidateRole(
 
   const memberName = member.full_name ?? member.username;
 
-  const availableRoles = getAvailableRoles({
-    currentRank: member.current_rank,
-    isMit: member.is_mit ?? false,
-    targetRank: drive.target_rank,
-    hasSupervisingMarshal: await hasSupervisingMarshal(supabase, driveId),
-  });
+  // Historical-record exception: a drive that already happened is a data
+  // entry, not a live safety-critical assignment — a member who's since
+  // been promoted can still be backdated into their actual role on an old
+  // drive. Deliberately scoped to drive_date, not "any Super User" — this
+  // is the only path that can reach this function at all is already
+  // Super-User-gated, so a blanket bypass here would silently remove rank
+  // guardrails (e.g. a Newbie assignable as Lead) from every upcoming and
+  // in-progress drive too, not just archived ones.
+  const isHistoricalDrive = drive.drive_date < todayIsoDate();
+
+  const availableRoles = isHistoricalDrive
+    ? ALL_REGISTRATION_ROLES
+    : getAvailableRoles({
+        currentRank: member.current_rank,
+        isMit: member.is_mit ?? false,
+        targetRank: drive.target_rank,
+        hasSupervisingMarshal: await hasSupervisingMarshal(supabase, driveId),
+      });
 
   if (!availableRoles.includes(requestedRole)) {
     const eligible = availableRoles.length > 0 ? availableRoles.join(" or ") : "no role";

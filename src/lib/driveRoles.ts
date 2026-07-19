@@ -12,6 +12,8 @@
 
 export type RegistrationRole = "Driver" | "Support" | "Lead";
 
+export const ALL_REGISTRATION_ROLES: RegistrationRole[] = ["Driver", "Support", "Lead"];
+
 export type RoleEligibilityInput = {
   currentRank: number;
   isMit: boolean;

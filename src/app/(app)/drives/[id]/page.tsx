@@ -99,7 +99,7 @@ type Registration = {
 
 /** "[Nickname/Username] - [Car Details] - [Mobile Number]", omitting any part that's unset. */
 function formatAttendeeLine(user: RegistrationUser) {
-  return [user.username, user.car_details, user.mobile_number]
+  return [user.full_name ?? user.username, user.car_details, user.mobile_number]
     .filter(Boolean)
     .join(" - ");
 }
@@ -166,6 +166,7 @@ function RegistrationRow({
   isSuperUser,
   driveTitle,
   driveId,
+  driveDate,
   targetRank,
   hasSupervisingMarshal,
 }: {
@@ -173,6 +174,7 @@ function RegistrationRow({
   isSuperUser: boolean;
   driveTitle: string;
   driveId: string;
+  driveDate: string;
   targetRank: number;
   hasSupervisingMarshal: boolean;
 }) {
@@ -182,7 +184,7 @@ function RegistrationRow({
   const rowContent = (
     <span className="flex min-w-0 flex-1 items-center gap-3">
       <Avatar
-        name={user?.username ?? "Member"}
+        name={user?.full_name ?? user?.username ?? "Member"}
         avatarUrl={user?.avatar_url ?? null}
         rankColorVar={rankColorVarFor(user?.current_rank)}
         className="h-8 w-8 text-xs"
@@ -221,6 +223,7 @@ function RegistrationRow({
           mode="edit"
           driveId={driveId}
           driveTitle={driveTitle}
+          driveDate={driveDate}
           targetRank={targetRank}
           hasSupervisingMarshal={hasSupervisingMarshal}
           registrationId={registration.id}
@@ -242,6 +245,7 @@ function SlotRow({
   isSuperUser,
   driveTitle,
   driveId,
+  driveDate,
   targetRank,
   hasSupervisingMarshal,
 }: {
@@ -250,13 +254,14 @@ function SlotRow({
   isSuperUser: boolean;
   driveTitle: string;
   driveId: string;
+  driveDate: string;
   targetRank: number;
   hasSupervisingMarshal: boolean;
 }) {
   const filledContent = registration?.user && (
     <span className="flex min-w-0 flex-1 items-center gap-3">
       <Avatar
-        name={registration.user.username}
+        name={registration.user.full_name ?? registration.user.username}
         avatarUrl={registration.user.avatar_url}
         rankColorVar={rankColorVarFor(registration.user.current_rank)}
         className="h-8 w-8 text-xs"
@@ -287,6 +292,7 @@ function SlotRow({
             mode="edit"
             driveId={driveId}
             driveTitle={driveTitle}
+            driveDate={driveDate}
             targetRank={targetRank}
             hasSupervisingMarshal={hasSupervisingMarshal}
             registrationId={registration.id}
@@ -302,6 +308,7 @@ function SlotRow({
           mode="add"
           driveId={driveId}
           driveTitle={driveTitle}
+          driveDate={driveDate}
           targetRank={targetRank}
           hasSupervisingMarshal={hasSupervisingMarshal}
           trigger={
@@ -769,6 +776,7 @@ export default async function DriveDetailPage({
               mode="add"
               driveId={drive.id}
               driveTitle={drive.title}
+              driveDate={drive.drive_date}
               targetRank={drive.target_rank}
               hasSupervisingMarshal={hasSupervisingMarshal}
               trigger={
@@ -794,6 +802,7 @@ export default async function DriveDetailPage({
                   isSuperUser={isSuperUser}
                   driveTitle={drive.title}
                   driveId={drive.id}
+                  driveDate={drive.drive_date}
                   targetRank={drive.target_rank}
                   hasSupervisingMarshal={hasSupervisingMarshal}
                 />
@@ -815,6 +824,7 @@ export default async function DriveDetailPage({
                   isSuperUser={isSuperUser}
                   driveTitle={drive.title}
                   driveId={drive.id}
+                  driveDate={drive.drive_date}
                   targetRank={drive.target_rank}
                   hasSupervisingMarshal={hasSupervisingMarshal}
                 />
@@ -836,6 +846,7 @@ export default async function DriveDetailPage({
                 isSuperUser={isSuperUser}
                 driveTitle={drive.title}
                 driveId={drive.id}
+                driveDate={drive.drive_date}
                 targetRank={drive.target_rank}
                 hasSupervisingMarshal={hasSupervisingMarshal}
               />

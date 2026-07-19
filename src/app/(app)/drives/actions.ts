@@ -310,6 +310,30 @@ export async function createDrive(
     };
   }
 
+  // lead_marshal_id is always the creating marshal (set above) — auto-seat
+  // them as the drive's own "Lead" registration so the roster never shows
+  // an empty Lead slot under a card that already says "Led by <them>".
+  // disclaimer_accepted: true is safe unconditionally here (unlike the
+  // admin-assigns-someone-else path in assignActions.ts, which requires an
+  // explicit attestation checkbox) — the actor and the subject are the same
+  // person, so this is just a self-registration side effect of creating the
+  // drive, not a consent record being recorded on someone else's behalf.
+  // Best-effort: the drive itself already saved successfully by this point,
+  // so a failure here shouldn't block the redirect or be reported as if the
+  // whole action failed.
+  const { error: leadRegistrationError } = await supabase.from("drive_registrations").insert({
+    drive_id: newDriveId,
+    user_id: user.id,
+    role: "Lead",
+    disclaimer_accepted: true,
+  });
+  if (leadRegistrationError) {
+    console.error(
+      "Failed to auto-register lead marshal for new drive:",
+      leadRegistrationError,
+    );
+  }
+
   // redirect() throws a framework-handled control-flow exception — it must
   // stay outside the try/catch above, or it would be caught and reported as
   // a real error instead of performing the navigation.

@@ -9,14 +9,23 @@ import {
   type AssignableMember,
   type AssignSlotState,
 } from "@/app/(app)/drives/[id]/assignActions";
-import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
+import { getAvailableRoles, ALL_REGISTRATION_ROLES, type RegistrationRole } from "@/lib/driveRoles";
 import { WAIVER_TEXT } from "./RegisterDriveForm";
 import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
 
 const initialState: AssignSlotState = { status: "idle", message: null };
 
-const ALL_ROLES: RegistrationRole[] = ["Driver", "Support", "Lead"];
+/** Local-date (not UTC) "YYYY-MM-DD" — mirrors the same helper in
+ * assignActions.ts so the client-side dropdown pre-filter and the server's
+ * independent re-validation agree on what counts as "historical." */
+function todayIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 // Static, accurate-by-construction captions — not the actual enforcement
 // (that's always getAvailableRoles, re-validated server-side regardless of
@@ -31,6 +40,11 @@ const ROLE_REQUIREMENT: Record<RegistrationRole, string> = {
 type CommonProps = {
   driveId: string;
   driveTitle: string;
+  /** Postgres date string, e.g. "2026-07-15". Used only to relax rank
+   * guardrails for drives already in the past (backdating a record for a
+   * member who's since been promoted) — never to bypass them for an
+   * upcoming or in-progress drive. */
+  driveDate: string;
   targetRank: number;
   hasSupervisingMarshal: boolean;
   /** Caller-supplied clickable content — an empty-slot placeholder, an
@@ -55,7 +69,8 @@ type Props =
  * no waiver re-attestation (the member's original acceptance already
  * covers them — this path only ever changes role/contact/vehicle info). */
 export function AssignDriverSlotModal(props: Props) {
-  const { driveId, driveTitle, targetRank, hasSupervisingMarshal, trigger, mode } = props;
+  const { driveId, driveTitle, driveDate, targetRank, hasSupervisingMarshal, trigger, mode } = props;
+  const isHistoricalDrive = driveDate < todayIsoDate();
 
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -134,26 +149,32 @@ export function AssignDriverSlotModal(props: Props) {
 
   function handleSelect(member: AssignableMember) {
     setSelected(member);
-    const roles = getAvailableRoles({
-      currentRank: member.current_rank,
-      isMit: member.is_mit,
-      targetRank,
-      hasSupervisingMarshal,
-    });
+    const roles = isHistoricalDrive
+      ? ALL_REGISTRATION_ROLES
+      : getAvailableRoles({
+          currentRank: member.current_rank,
+          isMit: member.is_mit,
+          targetRank,
+          hasSupervisingMarshal,
+        });
     setRole(roles.includes("Driver") ? "Driver" : (roles[0] ?? ""));
     setMobileNumber(member.mobile_number ?? "");
     setVehicleDetails(member.car_details ?? "");
   }
 
-  const eligibleRoles = selected
-    ? getAvailableRoles({
-        currentRank: selected.current_rank,
-        isMit: selected.is_mit,
-        targetRank,
-        hasSupervisingMarshal,
-      })
-    : [];
-  const missingRoles = ALL_ROLES.filter((r) => !eligibleRoles.includes(r));
+  const eligibleRoles = !selected
+    ? []
+    : isHistoricalDrive
+      ? ALL_REGISTRATION_ROLES
+      : getAvailableRoles({
+          currentRank: selected.current_rank,
+          isMit: selected.is_mit,
+          targetRank,
+          hasSupervisingMarshal,
+        });
+  const missingRoles = isHistoricalDrive
+    ? []
+    : ALL_REGISTRATION_ROLES.filter((r) => !eligibleRoles.includes(r));
 
   const canSave =
     selected !== null && role !== "" && !isSaving && (mode === "edit" || attested);
@@ -294,17 +315,24 @@ export function AssignDriverSlotModal(props: Props) {
                       </option>
                     ))}
                   </select>
-                  {missingRoles.length > 0 && (
+                  {isHistoricalDrive ? (
                     <p className="text-xs text-charcoal-light/60">
-                      Not available for this member:{" "}
-                      {missingRoles.map((r, i) => (
-                        <span key={r}>
-                          {i > 0 && "; "}
-                          <span className="font-medium">{r}</span> ({ROLE_REQUIREMENT[r]})
-                        </span>
-                      ))}
-                      .
+                      This drive already happened — rank guardrails are relaxed so members can
+                      be backdated into their actual historical role.
                     </p>
+                  ) : (
+                    missingRoles.length > 0 && (
+                      <p className="text-xs text-charcoal-light/60">
+                        Not available for this member:{" "}
+                        {missingRoles.map((r, i) => (
+                          <span key={r}>
+                            {i > 0 && "; "}
+                            <span className="font-medium">{r}</span> ({ROLE_REQUIREMENT[r]})
+                          </span>
+                        ))}
+                        .
+                      </p>
+                    )
                   )}
                 </div>
               )}
