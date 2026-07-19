@@ -23,6 +23,7 @@ import {
   PenLine,
   ScrollText,
   ChevronRight,
+  UserPlus,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import {
@@ -164,15 +165,22 @@ function RegistrationRow({
   registration,
   isSuperUser,
   driveTitle,
+  driveId,
+  targetRank,
+  hasSupervisingMarshal,
 }: {
   registration: Registration;
   isSuperUser: boolean;
   driveTitle: string;
+  driveId: string;
+  targetRank: number;
+  hasSupervisingMarshal: boolean;
 }) {
   const { user } = registration;
   const isMitCandidate = user?.current_rank === 4 && user.is_mit;
-  return (
-    <li className="flex items-center gap-3 rounded-lg border border-sand px-3 py-2">
+
+  const rowContent = (
+    <span className="flex min-w-0 flex-1 items-center gap-3">
       <Avatar
         name={user?.username ?? "Member"}
         avatarUrl={user?.avatar_url ?? null}
@@ -182,9 +190,6 @@ function RegistrationRow({
       <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">
         {user ? formatAttendeeLine(user) : "Member"}
       </span>
-      {isSuperUser && user && (
-        <WhatsAppQuickAction user={user} driveTitle={driveTitle} />
-      )}
       {isMitCandidate && (
         <span className="shrink-0 rounded-full bg-forest/10 px-2 py-0.5 text-[10px] font-bold tracking-wide text-forest uppercase">
           MIT
@@ -206,6 +211,27 @@ function RegistrationRow({
           iconClassName="h-3 w-3"
         />
       )}
+    </span>
+  );
+
+  return (
+    <li className="flex items-center gap-3 rounded-lg border border-sand px-3 py-2">
+      {isSuperUser && user ? (
+        <AssignDriverSlotModal
+          mode="edit"
+          driveId={driveId}
+          driveTitle={driveTitle}
+          targetRank={targetRank}
+          hasSupervisingMarshal={hasSupervisingMarshal}
+          registrationId={registration.id}
+          currentRole={registration.role}
+          member={user}
+          trigger={rowContent}
+        />
+      ) : (
+        rowContent
+      )}
+      {isSuperUser && user && <WhatsAppQuickAction user={user} driveTitle={driveTitle} />}
     </li>
   );
 }
@@ -227,48 +253,72 @@ function SlotRow({
   targetRank: number;
   hasSupervisingMarshal: boolean;
 }) {
+  const filledContent = registration?.user && (
+    <span className="flex min-w-0 flex-1 items-center gap-3">
+      <Avatar
+        name={registration.user.username}
+        avatarUrl={registration.user.avatar_url}
+        rankColorVar={rankColorVarFor(registration.user.current_rank)}
+        className="h-8 w-8 text-xs"
+      />
+      <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">
+        {formatAttendeeLine(registration.user)}
+      </span>
+      {registration.joining_camp && (
+        <span
+          title="Joining for camping"
+          className="flex shrink-0 items-center gap-1 rounded-full bg-sand-light px-2 py-0.5 text-[10px] font-semibold text-charcoal-light/80"
+        >
+          <Tent className="h-3 w-3" />
+          Camping
+        </span>
+      )}
+    </span>
+  );
+
   return (
     <li className="flex items-center gap-3 rounded-lg border border-sand px-3 py-2">
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sand-light text-xs font-semibold text-charcoal-light/70">
         {index + 1}
       </span>
       {registration?.user ? (
-        <>
-          <Avatar
-            name={registration.user.username}
-            avatarUrl={registration.user.avatar_url}
-            rankColorVar={rankColorVarFor(registration.user.current_rank)}
-            className="h-8 w-8 text-xs"
+        isSuperUser ? (
+          <AssignDriverSlotModal
+            mode="edit"
+            driveId={driveId}
+            driveTitle={driveTitle}
+            targetRank={targetRank}
+            hasSupervisingMarshal={hasSupervisingMarshal}
+            registrationId={registration.id}
+            currentRole={registration.role}
+            member={registration.user}
+            trigger={filledContent}
           />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">
-            {formatAttendeeLine(registration.user)}
-          </span>
-          {isSuperUser && (
-            <WhatsAppQuickAction user={registration.user} driveTitle={driveTitle} />
-          )}
-          {registration.joining_camp && (
-            <span
-              title="Joining for camping"
-              className="flex shrink-0 items-center gap-1 rounded-full bg-sand-light px-2 py-0.5 text-[10px] font-semibold text-charcoal-light/80"
-            >
-              <Tent className="h-3 w-3" />
-              Camping
-            </span>
-          )}
-        </>
+        ) : (
+          filledContent
+        )
       ) : isSuperUser ? (
         <AssignDriverSlotModal
+          mode="add"
           driveId={driveId}
           driveTitle={driveTitle}
-          slotLabel={`Driver Slot ${index + 1}`}
           targetRank={targetRank}
           hasSupervisingMarshal={hasSupervisingMarshal}
+          trigger={
+            <span className="flex flex-1 items-center gap-1.5 text-sm text-charcoal-light/50 italic transition-colors hover:text-forest hover:not-italic">
+              <CircleDashed className="h-4 w-4 shrink-0" />
+              Open slot — click to add
+            </span>
+          }
         />
       ) : (
         <span className="flex items-center gap-1.5 text-sm text-charcoal-light/50 italic">
           <CircleDashed className="h-4 w-4" />
           Open slot
         </span>
+      )}
+      {registration?.user && isSuperUser && (
+        <WhatsAppQuickAction user={registration.user} driveTitle={driveTitle} />
       )}
     </li>
   );
@@ -709,10 +759,27 @@ export default async function DriveDetailPage({
       )}
 
       <section className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm sm:p-6">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
-          <Users className="h-4 w-4 text-forest" />
-          Signup Sheet
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
+            <Users className="h-4 w-4 text-forest" />
+            Signup Sheet
+          </h2>
+          {isSuperUser && (
+            <AssignDriverSlotModal
+              mode="add"
+              driveId={drive.id}
+              driveTitle={drive.title}
+              targetRank={drive.target_rank}
+              hasSupervisingMarshal={hasSupervisingMarshal}
+              trigger={
+                <span className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-off-white px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10">
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Add Participant
+                </span>
+              }
+            />
+          )}
+        </div>
 
         {leads.length > 0 && (
           <div className="flex flex-col gap-2">
@@ -726,6 +793,9 @@ export default async function DriveDetailPage({
                   registration={r}
                   isSuperUser={isSuperUser}
                   driveTitle={drive.title}
+                  driveId={drive.id}
+                  targetRank={drive.target_rank}
+                  hasSupervisingMarshal={hasSupervisingMarshal}
                 />
               ))}
             </ul>
@@ -744,6 +814,9 @@ export default async function DriveDetailPage({
                   registration={r}
                   isSuperUser={isSuperUser}
                   driveTitle={drive.title}
+                  driveId={drive.id}
+                  targetRank={drive.target_rank}
+                  hasSupervisingMarshal={hasSupervisingMarshal}
                 />
               ))}
             </ul>

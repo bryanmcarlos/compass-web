@@ -118,6 +118,99 @@ export type AssignSlotState = {
   message: string | null;
 };
 
+type RoleCheckResult =
+  | {
+      ok: true;
+      memberName: string;
+      memberMobile: string | null;
+      memberCarDetails: string | null;
+      maxDrivers: number;
+    }
+  | { ok: false; message: string };
+
+/** Shared by both the create and edit actions below — loads the target
+ * member + drive and re-validates the requested role against the member's
+ * actual rank via `getAvailableRoles`, the same rank/MIT/target-rank-aware
+ * eligibility rules the self-service registration form uses. Never trusts
+ * anything about eligibility from the client. */
+async function loadMemberAndValidateRole(
+  supabase: SupabaseServerClient,
+  memberId: string,
+  driveId: string,
+  requestedRole: RegistrationRole,
+): Promise<RoleCheckResult> {
+  const [{ data: member, error: memberError }, { data: drive, error: driveError }] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select("username, full_name, current_rank, is_mit, mobile_number, car_details")
+        .eq("id", memberId)
+        .single(),
+      supabase.from("drives").select("target_rank, max_drivers").eq("id", driveId).single(),
+    ]);
+
+  if (memberError || !member) {
+    return { ok: false, message: "Couldn't find that member." };
+  }
+  if (driveError || !drive) {
+    return { ok: false, message: "Couldn't find that drive." };
+  }
+
+  const memberName = member.full_name ?? member.username;
+
+  const availableRoles = getAvailableRoles({
+    currentRank: member.current_rank,
+    isMit: member.is_mit ?? false,
+    targetRank: drive.target_rank,
+    hasSupervisingMarshal: await hasSupervisingMarshal(supabase, driveId),
+  });
+
+  if (!availableRoles.includes(requestedRole)) {
+    const eligible = availableRoles.length > 0 ? availableRoles.join(" or ") : "no role";
+    return {
+      ok: false,
+      message: `${memberName}'s rank only qualifies them for ${eligible} on this drive, not '${requestedRole}'.`,
+    };
+  }
+
+  return {
+    ok: true,
+    memberName,
+    memberMobile: member.mobile_number,
+    memberCarDetails: member.car_details,
+    maxDrivers: drive.max_drivers,
+  };
+}
+
+/** Only the mobile number and vehicle/car details sync back to the
+ * member's `profiles` row — role and registration timing are per-drive and
+ * never touch the profile. Best-effort: a sync failure degrades to a
+ * warning appended to the caller's success message rather than failing the
+ * registration write that already succeeded. */
+async function syncProfileFields(
+  supabase: SupabaseServerClient,
+  memberId: string,
+  submittedMobile: string,
+  currentMobile: string | null,
+  submittedVehicle: string,
+  currentCarDetails: string | null,
+): Promise<string> {
+  const updates: Record<string, string> = {};
+  if (submittedMobile && submittedMobile !== currentMobile) {
+    updates.mobile_number = submittedMobile;
+  }
+  if (submittedVehicle && submittedVehicle !== currentCarDetails) {
+    updates.car_details = submittedVehicle;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return "";
+  }
+
+  const { error } = await supabase.from("profiles").update(updates).eq("id", memberId);
+  return error ? " (couldn't save the updated contact/vehicle details to their profile)" : "";
+}
+
 export async function assignMemberToSlot(
   _prevState: AssignSlotState,
   formData: FormData,
@@ -153,37 +246,9 @@ export async function assignMemberToSlot(
     };
   }
 
-  const [{ data: member, error: memberError }, { data: drive, error: driveError }] =
-    await Promise.all([
-      supabase
-        .from("profiles")
-        .select("username, full_name, current_rank, is_mit, mobile_number")
-        .eq("id", memberId)
-        .single(),
-      supabase.from("drives").select("target_rank, max_drivers").eq("id", driveId).single(),
-    ]);
-
-  if (memberError || !member) {
-    return { status: "error", message: "Couldn't find that member." };
-  }
-  if (driveError || !drive) {
-    return { status: "error", message: "Couldn't find that drive." };
-  }
-
-  const memberName = member.full_name ?? member.username;
-
-  const availableRoles = getAvailableRoles({
-    currentRank: member.current_rank,
-    isMit: member.is_mit ?? false,
-    targetRank: drive.target_rank,
-    hasSupervisingMarshal: await hasSupervisingMarshal(supabase, driveId),
-  });
-
-  if (!availableRoles.includes(requestedRole)) {
-    return {
-      status: "error",
-      message: `${memberName}'s rank doesn't qualify for the '${requestedRole}' role on this drive.`,
-    };
+  const check = await loadMemberAndValidateRole(supabase, memberId, driveId, requestedRole);
+  if (!check.ok) {
+    return { status: "error", message: check.message };
   }
 
   if (requestedRole === "Driver") {
@@ -196,48 +261,37 @@ export async function assignMemberToSlot(
     if (countError) {
       return { status: "error", message: "Couldn't check available slots. Please try again." };
     }
-    if ((count ?? 0) >= drive.max_drivers) {
+    if ((count ?? 0) >= check.maxDrivers) {
       return { status: "error", message: "This drive's driver slots are full." };
     }
   }
 
-  const { data: registration, error: insertError } = await supabase
-    .from("drive_registrations")
-    .insert({
-      drive_id: driveId,
-      user_id: memberId,
-      role: requestedRole,
-      vehicle_details: vehicleDetails || null,
-      disclaimer_accepted: true,
-    })
-    .select("id")
-    .single();
+  const { error: insertError } = await supabase.from("drive_registrations").insert({
+    drive_id: driveId,
+    user_id: memberId,
+    role: requestedRole,
+    vehicle_details: vehicleDetails || null,
+    disclaimer_accepted: true,
+  });
 
   if (insertError) {
     return {
       status: "error",
       message:
         insertError.code === "23505"
-          ? `${memberName} is already registered for this drive.`
+          ? `${check.memberName} is already registered for this drive.`
           : "Couldn't save this assignment. Please try again.",
     };
   }
 
-  // Only the phone number syncs back to the profile "master record" — the
-  // vehicle field above intentionally only ever lands on this one
-  // registration row (drive_registrations.vehicle_details), never on
-  // profiles.car_details, so a one-off per-drive tweak can't drift a
-  // member's real persistent default.
-  let mobileSyncWarning = "";
-  if (mobileNumber && mobileNumber !== member.mobile_number) {
-    const { error: mobileError } = await supabase
-      .from("profiles")
-      .update({ mobile_number: mobileNumber })
-      .eq("id", memberId);
-    if (mobileError) {
-      mobileSyncWarning = " (couldn't save the updated mobile number to their profile)";
-    }
-  }
+  const syncWarning = await syncProfileFields(
+    supabase,
+    memberId,
+    mobileNumber,
+    check.memberMobile,
+    vehicleDetails,
+    check.memberCarDetails,
+  );
 
   // Best-effort audit trail, same shape/spirit as unregisterFromDrive's —
   // the assignment itself already succeeded, so a logging failure here
@@ -247,12 +301,7 @@ export async function assignMemberToSlot(
   const { error: auditError } = await supabase.from("audit_logs").insert({
     actor_id: user.id,
     action: "ADMIN_ASSIGN_DRIVE_SLOT",
-    details: {
-      drive_id: driveId,
-      assigned_user_id: memberId,
-      role: requestedRole,
-      drive_registration_id: registration.id,
-    },
+    details: { drive_id: driveId, assigned_user_id: memberId, role: requestedRole },
   });
   if (auditError) {
     console.error("Failed to write audit log for ADMIN_ASSIGN_DRIVE_SLOT", auditError);
@@ -262,6 +311,110 @@ export async function assignMemberToSlot(
 
   return {
     status: "success",
-    message: `${memberName} assigned as ${requestedRole}.${mobileSyncWarning}`,
+    message: `${check.memberName} assigned as ${requestedRole}.${syncWarning}`,
+  };
+}
+
+/** Edits an *existing* drive_registrations row — role, and vehicle/contact
+ * details. No attestation is collected or checked here: the member's
+ * disclaimer_accepted value already reflects their original registration
+ * (self-service or a prior admin attestation) and this path never changes
+ * it either way. */
+export async function updateAssignedMember(
+  _prevState: AssignSlotState,
+  formData: FormData,
+): Promise<AssignSlotState> {
+  const supabase = await createClient();
+  const { user, isSuperUser } = await requireSuperUser(supabase);
+
+  if (!user) {
+    return { status: "error", message: "You need to be signed in." };
+  }
+  if (!isSuperUser) {
+    return { status: "error", message: "Only Super Users can edit drive assignments." };
+  }
+
+  const registrationId = String(formData.get("registrationId") ?? "").trim();
+  const driveId = String(formData.get("driveId") ?? "").trim();
+  const memberId = String(formData.get("memberId") ?? "").trim();
+  const requestedRole = String(formData.get("role") ?? "") as RegistrationRole;
+  const mobileNumber = String(formData.get("mobileNumber") ?? "").trim();
+  const vehicleDetails = String(formData.get("vehicleDetails") ?? "").trim();
+
+  if (!registrationId || !driveId || !memberId) {
+    return { status: "error", message: "Missing registration, drive, or member." };
+  }
+
+  const { data: currentRegistration, error: currentError } = await supabase
+    .from("drive_registrations")
+    .select("role")
+    .eq("id", registrationId)
+    .single();
+
+  if (currentError || !currentRegistration) {
+    return { status: "error", message: "Couldn't find that registration." };
+  }
+
+  const check = await loadMemberAndValidateRole(supabase, memberId, driveId, requestedRole);
+  if (!check.ok) {
+    return { status: "error", message: check.message };
+  }
+
+  // Only re-check capacity when this edit is actually moving someone INTO
+  // Driver from a different role — already-Driver-staying-Driver doesn't
+  // need re-counting, and moving out of Driver never needs it either.
+  if (requestedRole === "Driver" && currentRegistration.role !== "Driver") {
+    const { count, error: countError } = await supabase
+      .from("drive_registrations")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_id", driveId)
+      .eq("role", "Driver");
+
+    if (countError) {
+      return { status: "error", message: "Couldn't check available slots. Please try again." };
+    }
+    if ((count ?? 0) >= check.maxDrivers) {
+      return { status: "error", message: "This drive's driver slots are full." };
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from("drive_registrations")
+    .update({ role: requestedRole, vehicle_details: vehicleDetails || null })
+    .eq("id", registrationId);
+
+  if (updateError) {
+    return { status: "error", message: "Couldn't save these changes. Please try again." };
+  }
+
+  const syncWarning = await syncProfileFields(
+    supabase,
+    memberId,
+    mobileNumber,
+    check.memberMobile,
+    vehicleDetails,
+    check.memberCarDetails,
+  );
+
+  const { error: auditError } = await supabase.from("audit_logs").insert({
+    actor_id: user.id,
+    action: "ADMIN_UPDATE_DRIVE_REGISTRATION",
+    details: {
+      drive_id: driveId,
+      registration_id: registrationId,
+      member_id: memberId,
+      previous_role: currentRegistration.role,
+      new_role: requestedRole,
+    },
+  });
+  if (auditError) {
+    console.error("Failed to write audit log for ADMIN_UPDATE_DRIVE_REGISTRATION", auditError);
+  }
+
+  revalidatePath(`/drives/${driveId}`);
+
+  return {
+    status: "success",
+    message: `${check.memberName} updated to ${requestedRole}.${syncWarning}`,
   };
 }

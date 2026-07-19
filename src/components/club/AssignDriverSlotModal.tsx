@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
-import { UserPlus, Search, LoaderCircle, CircleCheck, CircleAlert, X } from "lucide-react";
+import { useActionState, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { Search, LoaderCircle, CircleCheck, CircleAlert, X } from "lucide-react";
 import {
   searchAssignableMembers,
   assignMemberToSlot,
+  updateAssignedMember,
   type AssignableMember,
   type AssignSlotState,
 } from "@/app/(app)/drives/[id]/assignActions";
@@ -15,35 +16,65 @@ import { RankBadge } from "./RankBadge";
 
 const initialState: AssignSlotState = { status: "idle", message: null };
 
-/** Admin-only "fill this open slot" flow, reachable from an empty Driver
- * slot in the Signup Sheet. The trigger is always rendered — callers only
- * mount this component at all when the viewer is already known to be a
- * Super User, same gating convention as the rest of this page's admin-only
- * affordances (e.g. the WhatsApp quick action). */
-export function AssignDriverSlotModal({
-  driveId,
-  driveTitle,
-  slotLabel,
-  targetRank,
-  hasSupervisingMarshal,
-}: {
+const ALL_ROLES: RegistrationRole[] = ["Driver", "Support", "Lead"];
+
+// Static, accurate-by-construction captions — not the actual enforcement
+// (that's always getAvailableRoles, re-validated server-side regardless of
+// what this component shows), just a plain-language explanation of why a
+// role is missing from the dropdown for the selected member.
+const ROLE_REQUIREMENT: Record<RegistrationRole, string> = {
+  Lead: "requires Marshal rank (or a supervised Marshal-in-Training)",
+  Support: "requires Intermediate or Advanced rank (or MIT)",
+  Driver: "requires the member's rank to match this drive's target rank",
+};
+
+type CommonProps = {
   driveId: string;
   driveTitle: string;
-  slotLabel: string;
   targetRank: number;
   hasSupervisingMarshal: boolean;
-}) {
+  /** Caller-supplied clickable content — an empty-slot placeholder, an
+   * existing participant row, or a standalone "Add Participant" button.
+   * Wrapped in a layout-transparent button so it never fights the caller's
+   * own flex/grid context. */
+  trigger: ReactNode;
+};
+
+type Props =
+  | (CommonProps & { mode: "add" })
+  | (CommonProps & {
+      mode: "edit";
+      registrationId: string;
+      currentRole: RegistrationRole;
+      member: AssignableMember;
+    });
+
+/** Admin-only "fill or edit a drive assignment" flow. In "add" mode it
+ * starts at a member search; in "edit" mode it opens straight into the
+ * form, pre-filled from an existing registration, with no search step and
+ * no waiver re-attestation (the member's original acceptance already
+ * covers them — this path only ever changes role/contact/vehicle info). */
+export function AssignDriverSlotModal(props: Props) {
+  const { driveId, driveTitle, targetRank, hasSupervisingMarshal, trigger, mode } = props;
+
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AssignableMember[]>([]);
-  const [selected, setSelected] = useState<AssignableMember | null>(null);
-  const [role, setRole] = useState<RegistrationRole | "">("");
-  const [mobileNumber, setMobileNumber] = useState("");
-  const [vehicleDetails, setVehicleDetails] = useState("");
+  const [selected, setSelected] = useState<AssignableMember | null>(
+    mode === "edit" ? props.member : null,
+  );
+  const [role, setRole] = useState<RegistrationRole | "">(mode === "edit" ? props.currentRole : "");
+  const [mobileNumber, setMobileNumber] = useState(
+    mode === "edit" ? (props.member.mobile_number ?? "") : "",
+  );
+  const [vehicleDetails, setVehicleDetails] = useState(
+    mode === "edit" ? (props.member.car_details ?? "") : "",
+  );
   const [attested, setAttested] = useState(false);
   const [isSearching, startSearch] = useTransition();
-  const [state, formAction, isSaving] = useActionState(assignMemberToSlot, initialState);
+  const action = mode === "add" ? assignMemberToSlot : updateAssignedMember;
+  const [state, formAction, isSaving] = useActionState(action, initialState);
 
   useEffect(() => {
     if (isOpen) {
@@ -72,7 +103,7 @@ export function AssignDriverSlotModal({
   // than clearing `results` here, so this effect only ever sets state from
   // inside its async callback, never synchronously in the effect body.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || mode !== "add") return;
     const trimmed = query.trim();
     if (trimmed.length < 2) return;
 
@@ -83,20 +114,22 @@ export function AssignDriverSlotModal({
       });
     }, 300);
     return () => clearTimeout(timeout);
-  }, [query, driveId, isOpen]);
+  }, [query, driveId, isOpen, mode]);
 
   const trimmedQuery = query.trim();
   const visibleResults = trimmedQuery.length < 2 ? [] : results;
 
   function resetAndClose() {
     setIsOpen(false);
-    setQuery("");
-    setResults([]);
-    setSelected(null);
-    setRole("");
-    setMobileNumber("");
-    setVehicleDetails("");
-    setAttested(false);
+    if (mode === "add") {
+      setQuery("");
+      setResults([]);
+      setSelected(null);
+      setRole("");
+      setMobileNumber("");
+      setVehicleDetails("");
+      setAttested(false);
+    }
   }
 
   function handleSelect(member: AssignableMember) {
@@ -120,18 +153,15 @@ export function AssignDriverSlotModal({
         hasSupervisingMarshal,
       })
     : [];
+  const missingRoles = ALL_ROLES.filter((r) => !eligibleRoles.includes(r));
 
-  const canSave = selected !== null && role !== "" && attested && !isSaving;
+  const canSave =
+    selected !== null && role !== "" && !isSaving && (mode === "edit" || attested);
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setIsOpen(true)}
-        className="flex w-full items-center gap-1.5 text-sm text-charcoal-light/50 italic transition-colors hover:text-forest hover:not-italic"
-      >
-        <UserPlus className="h-4 w-4 shrink-0" />
-        Open slot — click to assign
+      <button type="button" onClick={() => setIsOpen(true)} className="contents cursor-pointer">
+        {trigger}
       </button>
 
       <dialog
@@ -145,10 +175,13 @@ export function AssignDriverSlotModal({
         <form action={formAction} className="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
           <input type="hidden" name="driveId" value={driveId} />
           <input type="hidden" name="memberId" value={selected?.id ?? ""} />
+          {mode === "edit" && (
+            <input type="hidden" name="registrationId" value={props.registrationId} />
+          )}
 
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-charcoal">
-              Assign {slotLabel} — {driveTitle}
+              {mode === "add" ? "Add Participant" : "Edit Assignment"} — {driveTitle}
             </h2>
             <button
               type="button"
@@ -160,7 +193,7 @@ export function AssignDriverSlotModal({
             </button>
           </div>
 
-          {!selected ? (
+          {mode === "add" && !selected ? (
             <div className="flex flex-col gap-2">
               <div className="relative">
                 <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-charcoal-light/60" />
@@ -210,7 +243,7 @@ export function AssignDriverSlotModal({
                 ))}
               </div>
             </div>
-          ) : (
+          ) : selected ? (
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
                 <Avatar
@@ -226,13 +259,15 @@ export function AssignDriverSlotModal({
                     @{selected.username}
                   </span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setSelected(null)}
-                  className="shrink-0 text-xs font-medium text-forest hover:underline"
-                >
-                  Change
-                </button>
+                {mode === "add" && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(null)}
+                    className="shrink-0 text-xs font-medium text-forest hover:underline"
+                  >
+                    Change
+                  </button>
+                )}
               </div>
 
               {eligibleRoles.length === 0 ? (
@@ -259,6 +294,18 @@ export function AssignDriverSlotModal({
                       </option>
                     ))}
                   </select>
+                  {missingRoles.length > 0 && (
+                    <p className="text-xs text-charcoal-light/60">
+                      Not available for this member:{" "}
+                      {missingRoles.map((r, i) => (
+                        <span key={r}>
+                          {i > 0 && "; "}
+                          <span className="font-medium">{r}</span> ({ROLE_REQUIREMENT[r]})
+                        </span>
+                      ))}
+                      .
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -294,24 +341,26 @@ export function AssignDriverSlotModal({
                   className="rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
                 />
                 <p className="text-xs text-charcoal-light/60">
-                  Pre-filled from their saved profile — only applies to this drive&apos;s
-                  registration, won&apos;t overwrite their profile default.
+                  Saved to this drive&apos;s registration and to{" "}
+                  {selected.full_name ?? selected.username}&apos;s profile if changed.
                 </p>
               </div>
 
-              <label className="flex items-start gap-2 rounded-lg border border-sand bg-sand-light/50 p-3 text-xs text-charcoal-light/90">
-                <input
-                  type="checkbox"
-                  name="attested"
-                  checked={attested}
-                  onChange={(e) => setAttested(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-forest"
-                />
-                <span>
-                  I confirm this member has accepted the waiver below on their behalf:{" "}
-                  <span className="text-charcoal-light/70 italic">{WAIVER_TEXT}</span>
-                </span>
-              </label>
+              {mode === "add" && (
+                <label className="flex items-start gap-2 rounded-lg border border-sand bg-sand-light/50 p-3 text-xs text-charcoal-light/90">
+                  <input
+                    type="checkbox"
+                    name="attested"
+                    checked={attested}
+                    onChange={(e) => setAttested(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-forest"
+                  />
+                  <span>
+                    I confirm this member has accepted the waiver below on their behalf:{" "}
+                    <span className="text-charcoal-light/70 italic">{WAIVER_TEXT}</span>
+                  </span>
+                </label>
+              )}
 
               {state.status === "error" && (
                 <p className="flex items-center gap-1.5 text-sm text-error">
@@ -330,10 +379,10 @@ export function AssignDriverSlotModal({
                 ) : (
                   <CircleCheck className="h-4 w-4" />
                 )}
-                Save Assignment
+                {mode === "add" ? "Save Assignment" : "Update Assignment"}
               </button>
             </div>
-          )}
+          ) : null}
         </form>
       </dialog>
     </>
