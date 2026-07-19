@@ -21,6 +21,8 @@ import {
   Megaphone,
   Mountain,
   PenLine,
+  ScrollText,
+  ChevronRight,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import {
@@ -40,6 +42,7 @@ import { CLUB_CONFIG } from "@/lib/constants";
 import { formatDate, formatTime } from "@/lib/format";
 import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
 import { getAppSettings } from "@/lib/appSettings";
+import { formatDriveNotes } from "@/lib/driveNotesText";
 
 type DriveDetail = {
   id: string;
@@ -67,6 +70,11 @@ type DriveDetail = {
   camp_coordinates: string | null;
   camp_schedule_type: string | null;
   lead_marshal: { username: string; full_name: string | null } | null;
+  /** Freeform historical notes carried over from this drive's old
+   * forum/WhatsApp brief — nullable like every other optional column here,
+   * matching Supabase's actual `null` (not `undefined`) for an unset
+   * column. */
+  drive_notes: string | null;
 };
 
 type RegistrationUser = {
@@ -269,6 +277,7 @@ export default async function DriveDetailPage({
        meeting_point_name, coordinates, map_url, meeting_time, drive_start_time, drive_end_time,
        radio_frequency, target_rank, max_drivers, equipment_requirements, banner_url,
        has_camp, camp_date, camp_time, camp_location, camp_coordinates, camp_schedule_type,
+       drive_notes,
        lead_marshal:profiles(username, full_name)`,
     )
     .eq("id", id)
@@ -663,6 +672,24 @@ export default async function DriveDetailPage({
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {drive.drive_notes && (
+        <section className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm sm:p-6">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
+            <ScrollText className="h-4 w-4 text-forest" />
+            Legacy Forum Notes
+          </h2>
+          <details className="group">
+            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-sm font-medium text-forest select-none hover:underline">
+              <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90" />
+              View original drive brief
+            </summary>
+            <pre className="mt-3 max-h-96 overflow-y-auto rounded-lg bg-sand-light/60 p-3 font-sans text-xs leading-relaxed whitespace-pre-wrap text-charcoal-light/90 sm:text-sm">
+              {formatDriveNotes(drive.drive_notes)}
+            </pre>
+          </details>
         </section>
       )}
 
