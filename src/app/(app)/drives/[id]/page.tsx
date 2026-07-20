@@ -575,7 +575,9 @@ export default async function DriveDetailPage({
             <span className="rounded-full bg-charcoal/50 px-2.5 py-1 font-mono text-xs font-medium tracking-wide text-off-white uppercase backdrop-blur-sm">
               {drive.drive_id_code}
             </span>
-            <DifficultyBadge difficulty={drive.difficulty} />
+            <span className="rounded-full bg-charcoal/50 px-2.5 py-1 text-xs font-semibold text-off-white backdrop-blur-sm">
+              Required Rank: {requiredRank?.title ?? drive.target_rank}
+            </span>
           </div>
 
           <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 p-4 sm:p-5">
@@ -587,9 +589,7 @@ export default async function DriveDetailPage({
                 status={drive.status}
                 className="rounded-full bg-charcoal/40 px-2 py-0.5 text-xs font-medium backdrop-blur-sm"
               />
-              <span className="rounded-full bg-charcoal/40 px-2.5 py-1 text-xs font-semibold text-off-white backdrop-blur-sm">
-                Required Rank: {requiredRank?.title ?? drive.target_rank}
-              </span>
+              <DifficultyBadge difficulty={drive.difficulty} />
             </div>
           </div>
         </div>
@@ -840,7 +840,16 @@ export default async function DriveDetailPage({
           <ul className="flex flex-col gap-2">
             {Array.from({ length: slotCount }).map((_, i) => (
               <SlotRow
-                key={i}
+                // Keyed by the real registration id, not the raw loop index
+                // — SlotRow's own AssignDriverSlotModal already identifies
+                // *which member* to edit via registration.id/registration.user
+                // (never the index), but keying the list by index alone
+                // could still let React reuse a slot's component instance
+                // (and its internal open/selected/role state) across a
+                // different underlying registration when drivers[] reorders
+                // between renders. Empty slots have no persisted identity to
+                // key by, so the index is fine for those.
+                key={drivers[i]?.id ?? `empty-slot-${i}`}
                 index={i}
                 registration={drivers[i]}
                 isSuperUser={isSuperUser}

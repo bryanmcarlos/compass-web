@@ -49,7 +49,7 @@ export function EditProfileForm({
             name="mobileNumber"
             type="tel"
             defaultValue={mobileNumber ?? ""}
-            placeholder="+9715XXXXXXXX"
+            placeholder="05XXXXXXXX or +9715XXXXXXXX"
             className="w-full rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
           />
         </div>

@@ -3,11 +3,11 @@ import { Compass, Route, Calendar, MapPin, UserRound, Lock, Plus } from "lucide-
 import { createClient } from "@/utils/supabase/server";
 import { EmptyState, ErrorState } from "@/components/club/StateMessage";
 import {
-  DifficultyBadge,
   StatusIndicator,
   type DriveDifficulty,
   type DriveStatus,
 } from "@/components/club/DriveBadges";
+import { RankBadge } from "@/components/club/RankBadge";
 import { formatDate } from "@/lib/format";
 import { CLUB_CONFIG } from "@/lib/constants";
 
@@ -30,7 +30,10 @@ function DriveCardContent({ drive }: { drive: Drive }) {
         <span className="font-mono text-xs font-medium tracking-wide text-charcoal-light/60 uppercase">
           {drive.drive_id_code}
         </span>
-        <DifficultyBadge difficulty={drive.difficulty} />
+        <RankBadge
+          rank={drive.target_rank}
+          className="shrink-0 gap-1.5 rounded-full bg-sand-light px-2.5 py-1 text-xs"
+        />
       </div>
 
       <h2 className="text-lg font-semibold text-charcoal">{drive.title}</h2>

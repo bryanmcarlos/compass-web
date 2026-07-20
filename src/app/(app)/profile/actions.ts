@@ -91,7 +91,21 @@ export async function uploadAvatar(
 }
 
 // E.164-ish: a leading "+", then 7-14 more digits (no leading zero after the +).
-const MOBILE_NUMBER_PATTERN = /^\+[1-9]\d{6,14}$/;
+// Accepts either the existing international format (+9715XXXXXXXX) — kept so
+// numbers already saved that way still validate — or a local UAE mobile
+// number entered directly (05XXXXXXXX, 10 digits).
+const MOBILE_NUMBER_PATTERN = /^(?:\+[1-9]\d{6,14}|05\d{8})$/;
+
+/** Strips spaces, dashes, parens, and any other stray characters a user
+ * might type, leaving a clean digit string (plus a leading "+" if the
+ * number was entered in international format) before it's validated or
+ * stored — "056-651 7635" and "+971 56 651 7635" both normalize the same
+ * way this produces for their respective formats. */
+function sanitizeMobileNumber(raw: string): string {
+  const trimmed = raw.trim();
+  const digitsOnly = trimmed.replace(/[^\d]/g, "");
+  return trimmed.startsWith("+") ? `+${digitsOnly}` : digitsOnly;
+}
 
 export async function updateProfile(
   _prevState: UpdateProfileState,
@@ -111,14 +125,14 @@ export async function updateProfile(
     };
   }
 
-  const mobileNumber = String(formData.get("mobileNumber") ?? "").trim();
+  const mobileNumber = sanitizeMobileNumber(String(formData.get("mobileNumber") ?? ""));
   const carDetails = String(formData.get("carDetails") ?? "").trim();
 
   if (mobileNumber && !MOBILE_NUMBER_PATTERN.test(mobileNumber)) {
     return {
       status: "error",
       message:
-        "Enter your mobile number in international format, e.g. +9715XXXXXXXX.",
+        "Enter a valid mobile number — either local (05XXXXXXXX) or international (+9715XXXXXXXX).",
     };
   }
   if (carDetails.length > 100) {
