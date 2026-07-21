@@ -21,6 +21,7 @@
   --color-primary: #ffbf2d;
 
   /* Rank-tier ordinal ramp (one hue, monotone lightness, light -> dark = low -> high tier) */
+  --color-tier-0: #c3d4c5;
   --color-tier-1: #84ba8f;
   --color-tier-2: #6ca177;
   --color-tier-3: #4e835a;
@@ -60,6 +61,7 @@
 
   --color-primary: var(--color-primary);
 
+  --color-tier-0: var(--color-tier-0);
   --color-tier-1: var(--color-tier-1);
   --color-tier-2: var(--color-tier-2);
   --color-tier-3: var(--color-tier-3);
@@ -94,6 +96,7 @@
     --color-forest-light: #7a9c80;
     --color-forest-dark: #3f5b45;
 
+    --color-tier-0: #c9e0cd;
     --color-tier-1: #95d7a2;
     --color-tier-2: #75b683;
     --color-tier-3: #579766;

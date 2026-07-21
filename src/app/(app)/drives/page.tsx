@@ -29,6 +29,8 @@ type UpcomingDrive = {
   location: string;
   meeting_point_name: string | null;
   target_rank: number;
+  allowed_ranks: string[];
+  is_all_levels: boolean;
   max_drivers: number;
 };
 
@@ -93,7 +95,15 @@ function UpcomingCard({
   userRank: number | null;
   registeredDrivers: number;
 }) {
-  const isLocked = userRank === null || userRank < drive.target_rank;
+  // A Member (rank 0) isn't floor-gated by target_rank like a ranked member
+  // — they're eligible display-wise for All Levels or a Newbie-only drive
+  // (the full "no other active Newbie registration" rule only matters at
+  // actual registration time, not for this list-card preview).
+  const isLocked =
+    userRank === null ||
+    (userRank === 0
+      ? !(drive.is_all_levels || (drive.allowed_ranks.length === 1 && drive.allowed_ranks[0] === "1"))
+      : userRank < drive.target_rank);
   const requiredRank = CLUB_CONFIG.ranks.find((r) => r.level === drive.target_rank);
 
   const body = (
@@ -255,7 +265,7 @@ export default async function DrivesPage({
     const { data, error: fetchError } = await supabase
       .from("drives")
       .select(
-        "id, drive_id_code, title, drive_date, drive_start_time, location, meeting_point_name, target_rank, max_drivers",
+        "id, drive_id_code, title, drive_date, drive_start_time, location, meeting_point_name, target_rank, allowed_ranks, is_all_levels, max_drivers",
       )
       .eq("status", "Scheduled")
       .order("drive_date", { ascending: true })

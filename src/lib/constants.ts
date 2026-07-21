@@ -6,22 +6,26 @@
  */
 
 /** Display-name form of a rank, as used by RankBadge's image-based badges.
- * "General" never corresponds to a real current_rank value today — every
- * member's current_rank is a non-null 1-5 integer, so this is only reachable
- * via a missing/out-of-range level. Kept as a real case (not just a type
- * comment) so RankBadge already renders it gracefully whenever a nullable
- * "unranked member" state is introduced later — that's a separate, larger
- * change (it touches every rank-eligibility path in the app) and isn't part
- * of this one. */
-export type RankName = "General" | "Newbie" | "Rookie" | "Intermediate" | "Advanced" | "Marshal";
+ * "General" never corresponds to a real current_rank value — it's the
+ * fallback RankBadge renders for a missing/out-of-range level, distinct
+ * from "Member" (a real rank: level 0, newly signed up / pending
+ * approval). */
+export type RankName =
+  | "General"
+  | "Member"
+  | "Newbie"
+  | "Rookie"
+  | "Intermediate"
+  | "Advanced"
+  | "Marshal";
 
 export function rankNameFromLevel(level: number | null | undefined): RankName {
   return (CLUB_CONFIG.ranks.find((r) => r.level === level)?.title as RankName | undefined) ?? "General";
 }
 
 export type RankLevel = {
-  /** 1 = lowest rank, 5 = highest. */
-  level: 1 | 2 | 3 | 4 | 5;
+  /** 0 = Member (newly signed up, pending approval), 5 = highest. */
+  level: 0 | 1 | 2 | 3 | 4 | 5;
   title: string;
   description: string;
   /** CSS custom property (defined in `app/globals.css`) carrying this rank's mark color. */
@@ -76,6 +80,13 @@ export const CLUB_CONFIG: ClubConfig = {
     surface: "bg-off-white",
   },
   ranks: [
+    {
+      level: 0,
+      title: "Member",
+      description:
+        "Newly signed up and pending Marshal approval — can join an All Levels drive or a single Newbie orientation drive to get started.",
+      colorVar: "--color-tier-0",
+    },
     {
       level: 1,
       title: "Newbie",

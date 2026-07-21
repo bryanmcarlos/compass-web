@@ -71,6 +71,8 @@ export type DriveFormValues = {
   drive_end_time: string | null;
   radio_frequency: string | null;
   target_rank: number;
+  allowed_ranks: string[];
+  is_all_levels: boolean;
   max_drivers: number;
   equipment_requirements: string[] | null;
   must_skills_covered: string[] | null;
@@ -158,9 +160,30 @@ export function DriveForm({
   const [fields, setFields] = useState<TextFieldsState>(() =>
     buildInitialFields(initialValues),
   );
-  const [targetRank, setTargetRank] = useState<number>(
-    initialValues?.target_rank ?? 1,
+  const [allowedRanks, setAllowedRanks] = useState<number[]>(
+    () => initialValues?.allowed_ranks?.map(Number) ?? [1],
   );
+  const [isAllLevels, setIsAllLevels] = useState<boolean>(
+    initialValues?.is_all_levels ?? false,
+  );
+  // The minimum of the selected ranks — used for the title-prefix preview
+  // and the must-skills curriculum, same "derived from allowedRanks" role
+  // target_rank plays server-side now.
+  const effectiveTargetRank = allowedRanks.length > 0 ? Math.min(...allowedRanks) : 1;
+
+  function toggleRank(level: number) {
+    setAllowedRanks((prev) =>
+      prev.includes(level) ? prev.filter((r) => r !== level) : [...prev, level].sort(),
+    );
+  }
+
+  function toggleAllLevels() {
+    setIsAllLevels((prev) => {
+      const next = !prev;
+      if (next) setAllowedRanks([1, 2, 3, 4, 5]);
+      return next;
+    });
+  }
   const [hasCamp, setHasCamp] = useState<boolean>(
     initialValues?.has_camp ?? false,
   );
@@ -183,8 +206,14 @@ export function DriveForm({
   const [removeBanner, setRemoveBanner] = useState(false);
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
-  const skillOptions =
-    COMPASS_RANKS[targetRank as 1 | 2 | 3 | 4 | 5]?.mustSkills ?? [];
+  // Union across every selected rank's curriculum — a multi-rank drive can
+  // check off must-skills from any of its covered ranks, not just the
+  // minimum's, matching the server-side allow-list in parseDriveFields.
+  const skillOptions = [
+    ...new Set(
+      allowedRanks.flatMap((r) => COMPASS_RANKS[r as 1 | 2 | 3 | 4 | 5]?.mustSkills ?? []),
+    ),
+  ];
 
   // createDrive redirects to the new drive on success, which already forces
   // a fresh render there. updateDrive doesn't navigate away — the marshal
@@ -333,7 +362,7 @@ export function DriveForm({
             <p className="text-xs text-charcoal-light/60">
               Will be saved as:{" "}
               <span className="font-medium text-charcoal-light/80">
-                {applyDriveTitlePrefix(fields.title, targetRank)}
+                {applyDriveTitlePrefix(fields.title, effectiveTargetRank, isAllLevels)}
               </span>
             </p>
           )}
@@ -360,26 +389,56 @@ export function DriveForm({
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <SelectField
-            id="status"
-            name="status"
-            label="Status"
-            value={fields.status}
-            onChange={handleFieldChange}
-            options={STATUSES.map((s) => ({ value: s, label: s }))}
-          />
-          <SelectField
-            id="targetRank"
-            name="targetRank"
-            label="Target Rank"
-            value={String(targetRank)}
-            onChange={(e) => setTargetRank(Number(e.target.value))}
-            options={CLUB_CONFIG.ranks.map((r) => ({
-              value: String(r.level),
-              label: r.title,
-            }))}
-          />
+        <SelectField
+          id="status"
+          name="status"
+          label="Status"
+          value={fields.status}
+          onChange={handleFieldChange}
+          options={STATUSES.map((s) => ({ value: s, label: s }))}
+        />
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-sm font-medium text-charcoal">Eligible Ranks</label>
+            <button
+              type="button"
+              onClick={toggleAllLevels}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                isAllLevels
+                  ? "border-forest/40 bg-forest/10 text-forest"
+                  : "border-sand bg-off-white text-charcoal-light hover:border-forest/40 hover:text-forest"
+              }`}
+            >
+              ⚡ All Levels
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {CLUB_CONFIG.ranks
+              .filter((r) => r.level >= 1)
+              .map((r) => (
+                <label
+                  key={r.level}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-charcoal has-[:checked]:border-forest has-[:checked]:bg-forest/5 ${
+                    isAllLevels ? "cursor-not-allowed opacity-60" : ""
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    name="allowedRanks"
+                    value={r.level}
+                    checked={allowedRanks.includes(r.level)}
+                    disabled={isAllLevels}
+                    onChange={() => toggleRank(r.level)}
+                    className="h-4 w-4 shrink-0 rounded border-sand text-forest focus:ring-2 focus:ring-forest/20"
+                  />
+                  {r.title}
+                </label>
+              ))}
+          </div>
+          {isAllLevels && (
+            <input type="hidden" name="isAllLevels" value="on" />
+          )}
         </div>
 
         <TextField
@@ -670,9 +729,11 @@ export function DriveForm({
         </h2>
         <p className="text-xs text-charcoal-light/70">
           Skills a member can complete on this drive, drawn from the{" "}
-          {CLUB_CONFIG.ranks.find((r) => r.level === targetRank)?.title ??
-            "selected rank"}{" "}
-          curriculum. Editable any time, including after the drive is marked
+          {allowedRanks
+            .map((r) => CLUB_CONFIG.ranks.find((rank) => rank.level === r)?.title)
+            .filter(Boolean)
+            .join(" / ") || "selected ranks"}{" "}
+          curricula. Editable any time, including after the drive is marked
           Completed, in case a teaching opportunity came up on the trail.
         </p>
         {skillOptions.length === 0 ? (

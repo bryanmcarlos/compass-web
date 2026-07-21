@@ -17,7 +17,15 @@ export const ALL_REGISTRATION_ROLES: RegistrationRole[] = ["Driver", "Support", 
 export type RoleEligibilityInput = {
   currentRank: number;
   isMit: boolean;
+  /** MIN(allowedRanks) — kept alongside allowedRanks for the branches below
+   * that are about relative seniority (a senior member Supporting a junior
+   * drive), not direct tier-matching. Those didn't need to change when
+   * drives became multi-rank. */
   targetRank: number;
+  /** The drive's full set of Driver-eligible rank levels (e.g. [1, 2] for a
+   * Newbie+Rookie drive). Ignored when isAllLevels is true. */
+  allowedRanks: number[];
+  isAllLevels: boolean;
   /** Is at least one full Marshal (rank 5) already registered as 'Support' on this drive? */
   hasSupervisingMarshal: boolean;
 };
@@ -25,13 +33,18 @@ export type RoleEligibilityInput = {
 /**
  * Returns the role(s) this member is allowed to register as for this drive,
  * in priority/display order. An empty array means they have no valid role
- * here at all (e.g. a Rookie on a Newbie-target drive: too senior to be the
- * target-rank Driver, too junior to Support).
+ * here at all (e.g. a Rookie on a Newbie-only drive: too senior to be a
+ * Driver, too junior to Support). Rank 0 (Member) always falls through to
+ * the default case here — Member eligibility is a separate policy overlay
+ * (see checkMemberEligibleForDrive in drives/[id]/actions.ts), not part of
+ * this rank-hierarchy function.
  */
 export function getAvailableRoles({
   currentRank,
   isMit,
   targetRank,
+  allowedRanks,
+  isAllLevels,
   hasSupervisingMarshal,
 }: RoleEligibilityInput): RegistrationRole[] {
   switch (currentRank) {
@@ -45,13 +58,13 @@ export function getAvailableRoles({
       return ["Support"];
 
     case 3: // Intermediate
-      if (targetRank === 3) return ["Driver"];
+      if (isAllLevels || allowedRanks.includes(3)) return ["Driver"];
       if (targetRank < 3) return ["Support"];
       return [];
 
     case 2: // Rookie
     case 1: // Newbie
-      return currentRank === targetRank ? ["Driver"] : [];
+      return isAllLevels || allowedRanks.includes(currentRank) ? ["Driver"] : [];
 
     default:
       return [];

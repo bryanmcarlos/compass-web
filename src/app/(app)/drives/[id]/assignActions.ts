@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { getAvailableRoles, ALL_REGISTRATION_ROLES, type RegistrationRole } from "@/lib/driveRoles";
-import { hasSupervisingMarshal } from "./actions";
+import { hasSupervisingMarshal, checkMemberEligibleForDrive } from "./actions";
+import { rankNameFromLevel } from "@/lib/constants";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -145,6 +146,7 @@ type RoleCheckResult =
       memberName: string;
       memberMobile: string | null;
       memberCarDetails: string | null;
+      memberCurrentRank: number;
       maxDrivers: number;
     }
   | { ok: false; message: string };
@@ -169,7 +171,7 @@ async function loadMemberAndValidateRole(
         .single(),
       supabase
         .from("drives")
-        .select("target_rank, max_drivers, drive_date")
+        .select("target_rank, max_drivers, drive_date, allowed_ranks, is_all_levels")
         .eq("id", driveId)
         .single(),
     ]);
@@ -217,14 +219,34 @@ async function loadMemberAndValidateRole(
   // in-progress drive too, not just archived ones.
   const isHistoricalDrive = drive.drive_date < todayIsoDate();
 
+  // Member (rank 0) eligibility is a policy overlay, not part of the rank
+  // hierarchy getAvailableRoles encodes — same "only All Levels or a single
+  // Newbie-only drive" rule the self-service form enforces. Historical
+  // drives already bypass every rank guardrail via ALL_REGISTRATION_ROLES
+  // above (an admin backdating any role for any rank on a past drive), so
+  // this only applies on the non-historical branch — consistent with that
+  // existing bypass rather than a rank-hierarchy exception that stops short
+  // of this one policy rule.
   const availableRoles = isHistoricalDrive
     ? ALL_REGISTRATION_ROLES
-    : getAvailableRoles({
-        currentRank: member.current_rank,
-        isMit: member.is_mit ?? false,
-        targetRank: drive.target_rank,
-        hasSupervisingMarshal: await hasSupervisingMarshal(supabase, driveId),
-      });
+    : member.current_rank === 0
+      ? (await checkMemberEligibleForDrive(
+            supabase,
+            memberId,
+            driveId,
+            drive.allowed_ranks,
+            drive.is_all_levels,
+          ))
+        ? (["Driver"] as RegistrationRole[])
+        : []
+      : getAvailableRoles({
+          currentRank: member.current_rank,
+          isMit: member.is_mit ?? false,
+          targetRank: drive.target_rank,
+          allowedRanks: drive.allowed_ranks.map(Number),
+          isAllLevels: drive.is_all_levels,
+          hasSupervisingMarshal: await hasSupervisingMarshal(supabase, driveId),
+        });
 
   if (!availableRoles.includes(requestedRole)) {
     const eligible = availableRoles.length > 0 ? availableRoles.join(" or ") : "no role";
@@ -239,6 +261,7 @@ async function loadMemberAndValidateRole(
     memberName,
     memberMobile: member.mobile_number,
     memberCarDetails: member.car_details,
+    memberCurrentRank: member.current_rank,
     maxDrivers: drive.max_drivers,
   };
 }
@@ -356,6 +379,7 @@ export async function assignMemberToSlot(
     role: requestedRole,
     vehicle_details: vehicleDetails || null,
     disclaimer_accepted: true,
+    driver_rank: requestedRole === "Driver" ? rankNameFromLevel(check.memberCurrentRank) : null,
   });
 
   if (insertError) {
@@ -493,7 +517,18 @@ export async function updateAssignedMember(
 
   const { error: updateError } = await supabase
     .from("drive_registrations")
-    .update({ role: requestedRole, vehicle_details: vehicleDetails || null })
+    .update({
+      role: requestedRole,
+      vehicle_details: vehicleDetails || null,
+      // Only (re)written when the row's role becomes Driver — left
+      // untouched (key omitted, not nulled) when it stays/becomes
+      // non-Driver, since an unused value on a Lead/Support row is
+      // harmless and clearing it would lose the historical snapshot for
+      // no reason.
+      ...(requestedRole === "Driver"
+        ? { driver_rank: rankNameFromLevel(check.memberCurrentRank) }
+        : {}),
+    })
     .eq("id", registrationId);
 
   if (updateError) {

@@ -5,6 +5,7 @@ import type { RankName } from "@/lib/constants";
 // mismatch is handled, so no call site needs to know about it.
 const RANK_BADGE_SRC: Record<RankName, string> = {
   General: "/badges/badge-general.png",
+  Member: "/badges/badge-general.png",
   Newbie: "/badges/badge-newbie.png",
   Rookie: "/badges/badge-rookie.png",
   Intermediate: "/badges/badge-intermediate.png",

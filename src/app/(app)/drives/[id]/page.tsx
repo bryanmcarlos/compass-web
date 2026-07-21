@@ -15,6 +15,7 @@ import type { PendingReport } from "@/components/club/PendingReportsReview";
 import { CLUB_CONFIG } from "@/lib/constants";
 import { formatDate } from "@/lib/format";
 import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
+import { checkMemberEligibleForDrive } from "./actions";
 import { getAppSettings } from "@/lib/appSettings";
 import type { DriveStatus } from "@/components/club/DriveBadges";
 
@@ -35,6 +36,8 @@ type DriveDetail = {
   drive_end_time: string | null;
   radio_frequency: string | null;
   target_rank: number;
+  allowed_ranks: string[];
+  is_all_levels: boolean;
   max_drivers: number;
   equipment_requirements: string[] | null;
   banner_url: string | null;
@@ -89,7 +92,7 @@ export default async function DriveDetailPage({
       `id, drive_id_code, title, status, drive_date, location,
        meeting_point_name, coordinates, exit_location, nearest_petrol_station, map_url,
        meeting_time, drive_start_time, drive_end_time,
-       radio_frequency, target_rank, max_drivers, equipment_requirements, banner_url,
+       radio_frequency, target_rank, allowed_ranks, is_all_levels, max_drivers, equipment_requirements, banner_url,
        has_camp, camp_date, camp_time, camp_location, camp_coordinates, camp_schedule_type,
        drive_notes,
        lead_marshal:profiles(username, full_name, current_rank)`,
@@ -166,7 +169,7 @@ export default async function DriveDetailPage({
   const { data: registrationsData } = await supabase
     .from("drive_registrations")
     .select(
-      "id, role, joining_camp, user:profiles(id, username, full_name, avatar_url, current_rank, is_mit, mobile_number, car_details)",
+      "id, role, joining_camp, driver_rank, user:profiles(id, username, full_name, avatar_url, current_rank, is_mit, mobile_number, car_details)",
     )
     .eq("drive_id", id)
     .order("registered_at", { ascending: true })
@@ -223,12 +226,28 @@ export default async function DriveDetailPage({
   // Only meaningful once userRank is known to be >= drive.target_rank — the
   // "signed out" / "under-ranked" branches below are handled separately and
   // never reach this. -1 is a safe placeholder that always yields [].
-  const availableRoles = getAvailableRoles({
-    currentRank: userRank ?? -1,
-    isMit: userIsMit,
-    targetRank: drive.target_rank,
-    hasSupervisingMarshal,
-  });
+  // Member (rank 0) bypasses getAvailableRoles entirely — see
+  // checkMemberEligibleForDrive's own doc comment for why this is a policy
+  // overlay rather than part of the rank hierarchy that function encodes.
+  const availableRoles =
+    userRank === 0
+      ? (await checkMemberEligibleForDrive(
+            supabase,
+            user!.id,
+            id,
+            drive.allowed_ranks,
+            drive.is_all_levels,
+          ))
+        ? (["Driver"] as RegistrationRole[])
+        : []
+      : getAvailableRoles({
+          currentRank: userRank ?? -1,
+          isMit: userIsMit,
+          targetRank: drive.target_rank,
+          allowedRanks: drive.allowed_ranks.map(Number),
+          isAllLevels: drive.is_all_levels,
+          hasSupervisingMarshal,
+        });
 
   // Empty role groups are omitted entirely (no dangling "SUPPORTS" header
   // with nothing under it), and only actual registrants appear — the open
@@ -331,6 +350,8 @@ export default async function DriveDetailPage({
           driveTitle={drive.title}
           driveDate={drive.drive_date}
           targetRank={drive.target_rank}
+          allowedRanks={drive.allowed_ranks.map(Number)}
+          isAllLevels={drive.is_all_levels}
           maxDrivers={drive.max_drivers}
           hasSupervisingMarshal={hasSupervisingMarshal}
         />
@@ -377,7 +398,7 @@ export default async function DriveDetailPage({
             to register for this drive.
           </p>
         </section>
-      ) : userRank < drive.target_rank ? (
+      ) : userRank !== 0 && userRank < drive.target_rank ? (
         <section className="flex flex-col items-center gap-2 rounded-2xl border border-sand bg-off-white px-5 py-6 text-center shadow-sm">
           <button
             type="button"

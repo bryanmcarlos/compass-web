@@ -46,7 +46,7 @@ export default async function EditDrivePage({
       `id, drive_id_code, title, status, drive_date, location,
        meeting_point_name, coordinates, exit_location, nearest_petrol_station, map_url,
        meeting_time, drive_start_time, drive_end_time,
-       radio_frequency, target_rank, max_drivers, equipment_requirements, must_skills_covered, banner_url,
+       radio_frequency, target_rank, allowed_ranks, is_all_levels, max_drivers, equipment_requirements, must_skills_covered, banner_url,
        has_camp, camp_date, camp_time, camp_location, camp_coordinates, camp_schedule_type`,
     )
     .eq("id", id)

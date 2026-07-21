@@ -17,7 +17,7 @@ export default async function AppGroupLayout({
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("is_admin, is_disabled")
+      .select("is_admin, is_disabled, is_approved")
       .eq("id", user.id)
       .single();
 
@@ -27,6 +27,11 @@ export default async function AppGroupLayout({
     // every authenticated route.
     if (profile?.is_disabled) {
       redirect("/login?error=Your account has been disabled. Contact a Super Admin.");
+    }
+    // Checked after is_disabled deliberately — a disabled *and* unapproved
+    // account gets the harsher message, not the softer "pending" one.
+    if (profile?.is_approved === false) {
+      redirect("/pending-approval");
     }
     isAdmin = profile?.is_admin ?? false;
   }

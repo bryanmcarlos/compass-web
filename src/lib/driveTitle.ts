@@ -13,9 +13,9 @@ const RANK_PREFIXES: Record<number, string> = {
   4: "ADV",
 };
 
-const ALL_PREFIXES = Object.values(RANK_PREFIXES);
+const ALL_PREFIXES = [...Object.values(RANK_PREFIXES), "ALL"];
 
-/** Strips a leading known rank prefix ("NWB - ", etc.), if present. */
+/** Strips a leading known rank prefix ("NWB - ", "ALL - ", etc.), if present. */
 export function stripDriveTitlePrefix(title: string): string {
   for (const prefix of ALL_PREFIXES) {
     const marker = `${prefix} - `;
@@ -28,12 +28,19 @@ export function stripDriveTitlePrefix(title: string): string {
 
 /**
  * Strips any existing known prefix first, then prepends the correct one for
- * `targetRank` — idempotent and stacking-proof by construction, whether
- * called on a fresh title, a resubmitted one, or one carrying a stale prefix
- * from before the target rank was changed on edit.
+ * `targetRank` (the minimum of a multi-rank drive's allowed ranks) —
+ * idempotent and stacking-proof by construction, whether called on a fresh
+ * title, a resubmitted one, or one carrying a stale prefix from before the
+ * target rank changed on edit. `isAllLevels` takes priority over
+ * `targetRank` when true.
  */
-export function applyDriveTitlePrefix(title: string, targetRank: number): string {
+export function applyDriveTitlePrefix(
+  title: string,
+  targetRank: number,
+  isAllLevels = false,
+): string {
   const base = stripDriveTitlePrefix(title.trim());
+  if (isAllLevels) return `ALL - ${base}`;
   const prefix = RANK_PREFIXES[targetRank];
   return prefix ? `${prefix} - ${base}` : base;
 }

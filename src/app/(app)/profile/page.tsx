@@ -136,7 +136,20 @@ export default async function ProfilePage() {
           <ErrorState message="Couldn't load your approved trip report count. Progress shown may be out of date." />
         )}
 
-        {nextRank ? (
+        {profile.current_rank === 0 ? (
+          // Members don't track toward Newbie via approved-drive count —
+          // they're auto-promoted on their first trip report for their one
+          // Newbie orientation drive (see submitTripReport), so the usual
+          // progress-bar/must-skills UI below (built around
+          // requiredDrivesForPromotion) doesn't apply to this rank at all.
+          <div className="flex items-start gap-2 rounded-lg bg-sand-light px-3 py-2.5 text-sm text-charcoal-light/90">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-charcoal-light/60" />
+            <span>
+              Register for a Newbie orientation drive and submit your trip
+              report afterward to become a Newbie member.
+            </span>
+          </div>
+        ) : nextRank ? (
           <>
             <p className="text-sm font-semibold text-charcoal">
               {metricLabel}: {Math.min(approvedDrives, threshold)}/{threshold}

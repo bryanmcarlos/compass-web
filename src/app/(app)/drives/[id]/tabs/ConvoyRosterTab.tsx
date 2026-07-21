@@ -2,7 +2,7 @@ import { Users, CircleDashed, Tent, MessageCircle, UserPlus } from "lucide-react
 import { Avatar } from "@/components/club/Avatar";
 import { RankBadge } from "@/components/club/RankBadge";
 import { AssignDriverSlotModal } from "@/components/club/AssignDriverSlotModal";
-import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
+import { CLUB_CONFIG, rankNameFromLevel, type RankName } from "@/lib/constants";
 import type { RegistrationRole } from "@/lib/driveRoles";
 
 export type RegistrationUser = {
@@ -20,7 +20,23 @@ export type Registration = {
   id: string;
   role: RegistrationRole;
   joining_camp: boolean;
+  /** Rank snapshot taken at registration time — what the Driver sub-groups
+   * below actually group by, not the member's current (possibly
+   * since-promoted) profile rank. Null on every row created before this
+   * column existed; RegistrationRow/groupDriversByRank fall back to the
+   * member's current rank for those. */
+  driver_rank: string | null;
   user: RegistrationUser | null;
+};
+
+type SharedModalProps = {
+  driveId: string;
+  driveTitle: string;
+  driveDate: string;
+  targetRank: number;
+  allowedRanks: number[];
+  isAllLevels: boolean;
+  hasSupervisingMarshal: boolean;
 };
 
 /** "[Nickname/Username] - [Car Details] - [Mobile Number]", omitting any part that's unset. */
@@ -74,22 +90,18 @@ function WhatsAppQuickAction({
   );
 }
 
+/** Handles every filled registration row — Lead, Support, and now Driver
+ * too (the old SlotRow-with-a-filled-branch split is gone; SlotRow below is
+ * exclusively for open/unfilled slots now that Drivers render grouped by
+ * rank instead of as one flat numbered list). */
 function RegistrationRow({
   registration,
   isSuperUser,
-  driveTitle,
-  driveId,
-  driveDate,
-  targetRank,
-  hasSupervisingMarshal,
+  modalProps,
 }: {
   registration: Registration;
   isSuperUser: boolean;
-  driveTitle: string;
-  driveId: string;
-  driveDate: string;
-  targetRank: number;
-  hasSupervisingMarshal: boolean;
+  modalProps: SharedModalProps;
 }) {
   const { user } = registration;
   const isMitCandidate = user?.current_rank === 4 && user.is_mit;
@@ -134,11 +146,7 @@ function RegistrationRow({
       {isSuperUser && user ? (
         <AssignDriverSlotModal
           mode="edit"
-          driveId={driveId}
-          driveTitle={driveTitle}
-          driveDate={driveDate}
-          targetRank={targetRank}
-          hasSupervisingMarshal={hasSupervisingMarshal}
+          {...modalProps}
           registrationId={registration.id}
           currentRole={registration.role}
           member={user}
@@ -147,83 +155,33 @@ function RegistrationRow({
       ) : (
         rowContent
       )}
-      {isSuperUser && user && <WhatsAppQuickAction user={user} driveTitle={driveTitle} />}
+      {isSuperUser && user && <WhatsAppQuickAction user={user} driveTitle={modalProps.driveTitle} />}
     </li>
   );
 }
 
+/** Open (unfilled) Driver slots only — filled ones render via
+ * RegistrationRow inside their rank group instead. An empty slot has no
+ * rank identity yet, so these render in one un-grouped pool below the
+ * filled, per-rank-grouped rows. */
 function SlotRow({
   index,
-  registration,
   isSuperUser,
-  driveTitle,
-  driveId,
-  driveDate,
-  targetRank,
-  hasSupervisingMarshal,
+  modalProps,
 }: {
   index: number;
-  registration: Registration | undefined;
   isSuperUser: boolean;
-  driveTitle: string;
-  driveId: string;
-  driveDate: string;
-  targetRank: number;
-  hasSupervisingMarshal: boolean;
+  modalProps: SharedModalProps;
 }) {
-  const filledContent = registration?.user && (
-    <span className="flex min-w-0 flex-1 items-center gap-3">
-      <Avatar
-        name={registration.user.full_name ?? registration.user.username}
-        avatarUrl={registration.user.avatar_url}
-        rankColorVar={rankColorVarFor(registration.user.current_rank)}
-        className="h-8 w-8 text-xs"
-      />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">
-        {formatAttendeeLine(registration.user)}
-      </span>
-      {registration.joining_camp && (
-        <span
-          title="Joining for camping"
-          className="flex shrink-0 items-center gap-1 rounded-full bg-sand-light px-2 py-0.5 text-[10px] font-semibold text-charcoal-light/80"
-        >
-          <Tent className="h-3 w-3" />
-          Camping
-        </span>
-      )}
-    </span>
-  );
-
   return (
     <li className="flex items-center gap-3 rounded-lg border border-sand px-3 py-2">
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sand-light text-xs font-semibold text-charcoal-light/70">
         {index + 1}
       </span>
-      {registration?.user ? (
-        isSuperUser ? (
-          <AssignDriverSlotModal
-            mode="edit"
-            driveId={driveId}
-            driveTitle={driveTitle}
-            driveDate={driveDate}
-            targetRank={targetRank}
-            hasSupervisingMarshal={hasSupervisingMarshal}
-            registrationId={registration.id}
-            currentRole={registration.role}
-            member={registration.user}
-            trigger={filledContent}
-          />
-        ) : (
-          filledContent
-        )
-      ) : isSuperUser ? (
+      {isSuperUser ? (
         <AssignDriverSlotModal
           mode="add"
-          driveId={driveId}
-          driveTitle={driveTitle}
-          driveDate={driveDate}
-          targetRank={targetRank}
-          hasSupervisingMarshal={hasSupervisingMarshal}
+          {...modalProps}
           trigger={
             <span className="flex flex-1 items-center gap-1.5 text-sm text-charcoal-light/50 italic transition-colors hover:text-forest hover:not-italic">
               <CircleDashed className="h-4 w-4 shrink-0" />
@@ -237,11 +195,31 @@ function SlotRow({
           Open slot
         </span>
       )}
-      {registration?.user && isSuperUser && (
-        <WhatsAppQuickAction user={registration.user} driveTitle={driveTitle} />
-      )}
     </li>
   );
+}
+
+// Member folds into the Newbie bucket for display — a Member is only ever
+// on their one Newbie-only or All Levels drive, and the spec groups them
+// under "NEWBIE DRIVERS" rather than a separate bucket, while driver_rank
+// itself still stores the real historical snapshot ("Member").
+const DRIVER_RANK_GROUPS: { key: RankName; label: string; emoji: string }[] = [
+  { key: "Newbie", label: "NEWBIE DRIVERS", emoji: "🟢" },
+  { key: "Rookie", label: "ROOKIE DRIVERS", emoji: "🟡" },
+  { key: "Intermediate", label: "INTERMEDIATE DRIVERS", emoji: "🟠" },
+  { key: "Advanced", label: "ADVANCE DRIVERS", emoji: "🔵" },
+];
+
+function groupDriversByRank(drivers: Registration[]): Map<RankName, Registration[]> {
+  const groups = new Map<RankName, Registration[]>();
+  for (const r of drivers) {
+    const raw = r.driver_rank ?? rankNameFromLevel(r.user?.current_rank);
+    const key = (raw === "Member" ? "Newbie" : raw) as RankName;
+    const bucket = groups.get(key) ?? [];
+    bucket.push(r);
+    groups.set(key, bucket);
+  }
+  return groups;
 }
 
 export function ConvoyRosterTab({
@@ -254,6 +232,8 @@ export function ConvoyRosterTab({
   driveTitle,
   driveDate,
   targetRank,
+  allowedRanks,
+  isAllLevels,
   maxDrivers,
   hasSupervisingMarshal,
 }: {
@@ -266,9 +246,24 @@ export function ConvoyRosterTab({
   driveTitle: string;
   driveDate: string;
   targetRank: number;
+  allowedRanks: number[];
+  isAllLevels: boolean;
   maxDrivers: number;
   hasSupervisingMarshal: boolean;
 }) {
+  const modalProps: SharedModalProps = {
+    driveId,
+    driveTitle,
+    driveDate,
+    targetRank,
+    allowedRanks,
+    isAllLevels,
+    hasSupervisingMarshal,
+  };
+
+  const driverGroups = groupDriversByRank(drivers);
+  const openSlotCount = Math.max(slotCount - drivers.length, 0);
+
   return (
     <section className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -279,11 +274,7 @@ export function ConvoyRosterTab({
         {isSuperUser && (
           <AssignDriverSlotModal
             mode="add"
-            driveId={driveId}
-            driveTitle={driveTitle}
-            driveDate={driveDate}
-            targetRank={targetRank}
-            hasSupervisingMarshal={hasSupervisingMarshal}
+            {...modalProps}
             trigger={
               <span className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-off-white px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10">
                 <UserPlus className="h-3.5 w-3.5" />
@@ -297,20 +288,11 @@ export function ConvoyRosterTab({
       {leads.length > 0 && (
         <div className="flex flex-col gap-2">
           <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
-            Lead
+            👑 Lead Marshals ({leads.length})
           </h3>
           <ul className="flex flex-col gap-2">
             {leads.map((r) => (
-              <RegistrationRow
-                key={r.id}
-                registration={r}
-                isSuperUser={isSuperUser}
-                driveTitle={driveTitle}
-                driveId={driveId}
-                driveDate={driveDate}
-                targetRank={targetRank}
-                hasSupervisingMarshal={hasSupervisingMarshal}
-              />
+              <RegistrationRow key={r.id} registration={r} isSuperUser={isSuperUser} modalProps={modalProps} />
             ))}
           </ul>
         </div>
@@ -319,44 +301,55 @@ export function ConvoyRosterTab({
       {supports.length > 0 && (
         <div className="flex flex-col gap-2">
           <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
-            Supports
+            🛡️ Support Marshals ({supports.length})
           </h3>
           <ul className="flex flex-col gap-2">
             {supports.map((r) => (
-              <RegistrationRow
-                key={r.id}
-                registration={r}
-                isSuperUser={isSuperUser}
-                driveTitle={driveTitle}
-                driveId={driveId}
-                driveDate={driveDate}
-                targetRank={targetRank}
-                hasSupervisingMarshal={hasSupervisingMarshal}
-              />
+              <RegistrationRow key={r.id} registration={r} isSuperUser={isSuperUser} modalProps={modalProps} />
             ))}
           </ul>
         </div>
       )}
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
           Drivers ({drivers.length}/{maxDrivers})
         </h3>
-        <ul className="flex flex-col gap-2">
-          {Array.from({ length: slotCount }).map((_, i) => (
-            <SlotRow
-              key={drivers[i]?.id ?? `empty-slot-${i}`}
-              index={i}
-              registration={drivers[i]}
-              isSuperUser={isSuperUser}
-              driveTitle={driveTitle}
-              driveId={driveId}
-              driveDate={driveDate}
-              targetRank={targetRank}
-              hasSupervisingMarshal={hasSupervisingMarshal}
-            />
-          ))}
-        </ul>
+
+        {DRIVER_RANK_GROUPS.map(({ key, label, emoji }) => {
+          const group = driverGroups.get(key);
+          if (!group || group.length === 0) return null;
+          return (
+            <div key={key} className="flex flex-col gap-2">
+              <h4 className="text-xs font-semibold tracking-wide text-charcoal-light/60 uppercase">
+                {emoji} {label} ({group.length})
+              </h4>
+              <ul className="flex flex-col gap-2">
+                {group.map((r) => (
+                  <RegistrationRow
+                    key={r.id}
+                    registration={r}
+                    isSuperUser={isSuperUser}
+                    modalProps={modalProps}
+                  />
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+
+        {openSlotCount > 0 && (
+          <div className="flex flex-col gap-2">
+            <h4 className="text-xs font-semibold tracking-wide text-charcoal-light/60 uppercase">
+              Open Slots ({openSlotCount})
+            </h4>
+            <ul className="flex flex-col gap-2">
+              {Array.from({ length: openSlotCount }).map((_, i) => (
+                <SlotRow key={`empty-slot-${i}`} index={drivers.length + i} isSuperUser={isSuperUser} modalProps={modalProps} />
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </section>
   );

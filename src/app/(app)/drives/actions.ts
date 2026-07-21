@@ -114,8 +114,17 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
   const status = String(formData.get("status") ?? "");
   const driveDate = String(formData.get("driveDate") ?? "").trim();
   const location = String(formData.get("location") ?? "").trim();
-  const targetRank = Number(formData.get("targetRank"));
   const maxDrivers = Number(formData.get("maxDrivers"));
+
+  // isAllLevels forces the full 1-5 set server-side regardless of what
+  // checkboxes were actually submitted — defense-in-depth, matching this
+  // function's existing "never trust the client's enum values" posture.
+  const isAllLevels = formData.get("isAllLevels") === "on";
+  const submittedRanks = formData
+    .getAll("allowedRanks")
+    .map((v) => Number(v))
+    .filter((r) => Number.isInteger(r) && r >= 1 && r <= 5);
+  const allowedRanks = isAllLevels ? [1, 2, 3, 4, 5] : [...new Set(submittedRanks)];
 
   if (!title || !driveDate || !location) {
     return { ok: false, message: "Fill in the title, date, and location." };
@@ -123,21 +132,30 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
   if (!STATUSES.includes(status)) {
     return { ok: false, message: "Choose a valid status." };
   }
-  if (!Number.isInteger(targetRank) || targetRank < 1 || targetRank > 5) {
-    return { ok: false, message: "Choose a valid target rank." };
+  if (allowedRanks.length === 0) {
+    return { ok: false, message: "Choose at least one rank, or mark this drive All Levels." };
   }
   if (!Number.isInteger(maxDrivers) || maxDrivers < 1) {
     return { ok: false, message: "Max driver slots must be a positive number." };
   }
 
+  // target_rank is derived, not client-trusted — the minimum of the
+  // selected ranks, kept in sync for the title-prefix and any other code
+  // still reading a single rank number.
+  const targetRank = Math.min(...allowedRanks);
+
+  // Union across every selected rank's curriculum — a multi-rank drive can
+  // check off must-skills from any of its covered ranks, not just the
+  // minimum's.
   const allowedSkills = new Set(
-    COMPASS_RANKS[targetRank as 1 | 2 | 3 | 4 | 5]?.mustSkills ?? [],
+    allowedRanks.flatMap((r) => COMPASS_RANKS[r as 1 | 2 | 3 | 4 | 5]?.mustSkills ?? []),
   );
   const mustSkills = formData
     .getAll("mustSkills")
     .map((v) => String(v))
-    // Only accept skills that actually belong to the submitted target rank's
-    // curriculum — a crafted POST could otherwise inject arbitrary strings.
+    // Only accept skills that actually belong to one of the submitted
+    // ranks' curricula — a crafted POST could otherwise inject arbitrary
+    // strings.
     .filter((skill) => allowedSkills.has(skill));
 
   const equipmentRequirements = [
@@ -213,7 +231,7 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
       // so this is safe whether `title` is a clean base title (the normal
       // case, since the form field never shows the prefix) or one that
       // still carries a stale prefix from before the target rank changed.
-      title: applyDriveTitlePrefix(title, targetRank),
+      title: applyDriveTitlePrefix(title, targetRank, isAllLevels),
       // Difficulty is no longer collected from the form or shown anywhere
       // on the frontend — the column stays (still NOT NULL), so every
       // insert/update just writes a fixed, unused value rather than making
@@ -223,6 +241,8 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
       drive_date: driveDate,
       location,
       target_rank: targetRank,
+      allowed_ranks: allowedRanks.map(String),
+      is_all_levels: isAllLevels,
       max_drivers: maxDrivers,
       meeting_point_name: optionalText("meetingPointName"),
       coordinates: optionalText("coordinates"),

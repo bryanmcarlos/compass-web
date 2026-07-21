@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
+import { rankNameFromLevel } from "@/lib/constants";
 
 export type RegisterDriveState = {
   status: "idle" | "error" | "success";
@@ -21,6 +22,35 @@ export async function hasSupervisingMarshal(
     .overrideTypes<{ user: { current_rank: number } | null }[], { merge: false }>();
 
   return (data ?? []).some((r) => r.user?.current_rank === 5);
+}
+
+/** Member (rank 0) eligibility is a policy overlay, not part of the rank
+ * hierarchy getAvailableRoles encodes — a Member can only ever join an All
+ * Levels drive, or a single Newbie-only drive at a time (checked by "no
+ * other currently-held Newbie-only registration", not a lifetime-use flag,
+ * so an unregistered/cancelled attempt doesn't permanently lock them out). */
+export async function checkMemberEligibleForDrive(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  driveId: string,
+  allowedRanks: string[],
+  isAllLevels: boolean,
+): Promise<boolean> {
+  if (isAllLevels) return true;
+
+  const isPureNewbieDrive = allowedRanks.length === 1 && allowedRanks[0] === "1";
+  if (!isPureNewbieDrive) return false;
+
+  const { data: existing } = await supabase
+    .from("drive_registrations")
+    .select("drive_id, drives!inner(allowed_ranks, is_all_levels)")
+    .eq("user_id", userId)
+    .neq("drive_id", driveId);
+
+  return !(existing ?? []).some((r) => {
+    const d = r.drives as unknown as { allowed_ranks: string[] | null; is_all_levels: boolean };
+    return !d.is_all_levels && d.allowed_ranks?.length === 1 && d.allowed_ranks[0] === "1";
+  });
 }
 
 export async function registerForDrive(
@@ -68,7 +98,7 @@ export async function registerForDrive(
         .single(),
       supabase
         .from("drives")
-        .select("target_rank, max_drivers, has_camp")
+        .select("target_rank, max_drivers, has_camp, allowed_ranks, is_all_levels")
         .eq("id", driveId)
         .single(),
     ]);
@@ -83,7 +113,10 @@ export async function registerForDrive(
     return { status: "error", message: "Couldn't find that drive." };
   }
 
-  if (profile.current_rank < drive.target_rank) {
+  // Rank 0 (Member) is below the floor of every real target_rank by
+  // definition — this check only applies to ranked members; a Member's
+  // actual eligibility is decided below by checkMemberEligibleForDrive.
+  if (profile.current_rank !== 0 && profile.current_rank < drive.target_rank) {
     return {
       status: "error",
       message: "Your rank doesn't qualify for this drive yet.",
@@ -94,12 +127,25 @@ export async function registerForDrive(
   // — including the Marshal-in-Training "Lead" exception, which depends on
   // live registration data (a supervising Marshal) that could have changed
   // between page load and submission.
-  const availableRoles = getAvailableRoles({
-    currentRank: profile.current_rank,
-    isMit: profile.is_mit ?? false,
-    targetRank: drive.target_rank,
-    hasSupervisingMarshal: await hasSupervisingMarshal(supabase, driveId),
-  });
+  const availableRoles =
+    profile.current_rank === 0
+      ? (await checkMemberEligibleForDrive(
+            supabase,
+            user.id,
+            driveId,
+            drive.allowed_ranks,
+            drive.is_all_levels,
+          ))
+        ? (["Driver"] as RegistrationRole[])
+        : []
+      : getAvailableRoles({
+          currentRank: profile.current_rank,
+          isMit: profile.is_mit ?? false,
+          targetRank: drive.target_rank,
+          allowedRanks: drive.allowed_ranks.map(Number),
+          isAllLevels: drive.is_all_levels,
+          hasSupervisingMarshal: await hasSupervisingMarshal(supabase, driveId),
+        });
 
   if (availableRoles.length === 0) {
     return {
@@ -159,6 +205,10 @@ export async function registerForDrive(
       // Only reachable past the acceptedWaiver check above, so this is
       // always a true acceptance, never a default/assumed value.
       disclaimer_accepted: true,
+      // Snapshot of the registrant's rank *at registration time* — the
+      // Convoy Roster groups by this, not by their current (possibly
+      // since-promoted) profile rank. Only meaningful for Driver rows.
+      driver_rank: role === "Driver" ? rankNameFromLevel(profile.current_rank) : null,
     });
 
   if (insertError) {

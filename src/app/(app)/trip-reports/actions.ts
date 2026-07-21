@@ -176,15 +176,32 @@ export async function submitTripReport(
     };
   }
 
+  // Only populated when a Member (rank 0) submits a report for a pure
+  // Newbie-only drive — used after the insert below to auto-promote them.
+  // Fetched here (inside the existing driveId-gated block) rather than as a
+  // separate round trip.
+  let promoteToNewbie = false;
+
   // A floating report (no drive_id) has nothing to be "registered for" —
   // both checks below only apply once a specific drive is targeted.
   if (driveId) {
-    const { data: registration } = await supabase
-      .from("drive_registrations")
-      .select("id")
-      .eq("drive_id", driveId)
-      .eq("user_id", user.id)
-      .maybeSingle();
+    const [{ data: registration }, { data: profileForPromo }, { data: driveForPromo }] =
+      await Promise.all([
+        supabase
+          .from("drive_registrations")
+          .select("id")
+          .eq("drive_id", driveId)
+          .eq("user_id", user.id)
+          .maybeSingle(),
+        supabase.from("profiles").select("current_rank").eq("id", user.id).single(),
+        supabase.from("drives").select("allowed_ranks, is_all_levels").eq("id", driveId).single(),
+      ]);
+
+    promoteToNewbie =
+      profileForPromo?.current_rank === 0 &&
+      !driveForPromo?.is_all_levels &&
+      driveForPromo?.allowed_ranks?.length === 1 &&
+      driveForPromo.allowed_ranks[0] === "1";
 
     if (!registration) {
       return {
@@ -268,6 +285,21 @@ export async function submitTripReport(
       "Failed to write audit log for SUBMIT_TRIP_REPORT",
       auditError,
     );
+  }
+
+  // A Member's first trip report for their one Newbie-only drive
+  // auto-promotes them — best-effort, same as the audit log above, and
+  // deliberately doesn't touch this registration's own drive_registrations
+  // row: driver_rank stays "Member" as a historically-accurate snapshot of
+  // what they were at registration time, not retroactively rewritten.
+  if (promoteToNewbie) {
+    const { error: promoteError } = await supabase
+      .from("profiles")
+      .update({ current_rank: 1 })
+      .eq("id", user.id);
+    if (promoteError) {
+      console.error("Failed to auto-promote Member to Newbie", promoteError);
+    }
   }
 
   revalidatePath("/trip-reports");

@@ -20,7 +20,7 @@ export default async function AdminMembersPage() {
   const { data: members, error } = await supabase
     .from("profiles")
     .select(
-      "id, username, full_name, avatar_url, current_rank, is_marshal, is_mit, is_disabled, mobile_number, car_details",
+      "id, username, full_name, avatar_url, current_rank, is_marshal, is_mit, is_disabled, is_approved, mobile_number, car_details",
     )
     .order("username", { ascending: true })
     .overrideTypes<Member[], { merge: false }>();

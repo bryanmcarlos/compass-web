@@ -47,6 +47,8 @@ type CommonProps = {
    * upcoming or in-progress drive. */
   driveDate: string;
   targetRank: number;
+  allowedRanks: number[];
+  isAllLevels: boolean;
   hasSupervisingMarshal: boolean;
   /** Caller-supplied clickable content — an empty-slot placeholder, an
    * existing participant row, or a standalone "Add Participant" button.
@@ -70,8 +72,37 @@ type Props =
  * no waiver re-attestation (the member's original acceptance already
  * covers them — this path only ever changes role/contact/vehicle info). */
 export function AssignDriverSlotModal(props: Props) {
-  const { driveId, driveTitle, driveDate, targetRank, hasSupervisingMarshal, trigger, mode } = props;
+  const {
+    driveId,
+    driveTitle,
+    driveDate,
+    targetRank,
+    allowedRanks,
+    isAllLevels,
+    hasSupervisingMarshal,
+    trigger,
+    mode,
+  } = props;
   const isHistoricalDrive = driveDate < todayIsoDate();
+
+  // Best-effort client preview only — the server independently re-validates
+  // regardless (including, for a Member, a "no other active Newbie
+  // registration" check this client-side preview can't do without a round
+  // trip). A Member (rank 0) always falls through getAvailableRoles'
+  // default case, so it's special-cased here the same way the server
+  // special-cases it before ever calling that function.
+  function previewRolesFor(member: AssignableMember): RegistrationRole[] {
+    if (isHistoricalDrive) return ALL_REGISTRATION_ROLES;
+    if (member.current_rank === 0) return ["Driver"];
+    return getAvailableRoles({
+      currentRank: member.current_rank,
+      isMit: member.is_mit,
+      targetRank,
+      allowedRanks,
+      isAllLevels,
+      hasSupervisingMarshal,
+    });
+  }
 
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -150,29 +181,13 @@ export function AssignDriverSlotModal(props: Props) {
 
   function handleSelect(member: AssignableMember) {
     setSelected(member);
-    const roles = isHistoricalDrive
-      ? ALL_REGISTRATION_ROLES
-      : getAvailableRoles({
-          currentRank: member.current_rank,
-          isMit: member.is_mit,
-          targetRank,
-          hasSupervisingMarshal,
-        });
+    const roles = previewRolesFor(member);
     setRole(roles.includes("Driver") ? "Driver" : (roles[0] ?? ""));
     setMobileNumber(member.mobile_number ?? "");
     setVehicleDetails(member.car_details ?? "");
   }
 
-  const eligibleRoles = !selected
-    ? []
-    : isHistoricalDrive
-      ? ALL_REGISTRATION_ROLES
-      : getAvailableRoles({
-          currentRank: selected.current_rank,
-          isMit: selected.is_mit,
-          targetRank,
-          hasSupervisingMarshal,
-        });
+  const eligibleRoles = selected ? previewRolesFor(selected) : [];
   const missingRoles = isHistoricalDrive
     ? []
     : ALL_REGISTRATION_ROLES.filter((r) => !eligibleRoles.includes(r));

@@ -13,6 +13,7 @@ import {
   Copy,
   Check,
   Mail,
+  Hourglass,
 } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
@@ -20,6 +21,7 @@ import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
 import {
   updateMemberRank,
   toggleMemberDisabled,
+  toggleMemberApproval,
   updateMemberFields,
   type MemberActionState,
 } from "@/app/(app)/admin/members/actions";
@@ -33,6 +35,7 @@ export type Member = {
   is_marshal: boolean;
   is_mit: boolean;
   is_disabled: boolean;
+  is_approved: boolean;
   mobile_number: string | null;
   car_details: string | null;
 };
@@ -177,17 +180,25 @@ function MemberRow({
           />
         </td>
         <td className="w-px px-2 py-3 whitespace-nowrap md:px-4">
-          {member.is_disabled ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-error-bg px-2 py-0.5 text-xs font-semibold text-error">
-              <Ban className="h-3 w-3" />
-              <span className="sr-only sm:not-sr-only">Disabled</span>
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-full bg-forest/10 px-2 py-0.5 text-xs font-semibold text-forest-dark">
-              <CircleCheck className="h-3 w-3" />
-              <span className="sr-only sm:not-sr-only">Active</span>
-            </span>
-          )}
+          <div className="flex items-center gap-1.5">
+            {member.is_disabled ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-error-bg px-2 py-0.5 text-xs font-semibold text-error">
+                <Ban className="h-3 w-3" />
+                <span className="sr-only sm:not-sr-only">Disabled</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full bg-forest/10 px-2 py-0.5 text-xs font-semibold text-forest-dark">
+                <CircleCheck className="h-3 w-3" />
+                <span className="sr-only sm:not-sr-only">Active</span>
+              </span>
+            )}
+            {!member.is_approved && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-sand-light px-2 py-0.5 text-xs font-semibold text-charcoal-light/80">
+                <Hourglass className="h-3 w-3" />
+                <span className="sr-only sm:not-sr-only">Pending</span>
+              </span>
+            )}
+          </div>
         </td>
         <td className="w-px px-2 py-3 text-right whitespace-nowrap md:px-4">
           <button
@@ -206,6 +217,7 @@ function MemberRow({
           <td colSpan={4} className="px-2 py-5 md:px-4">
             <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-6">
               <RankControl member={member} />
+              <ApprovalControl member={member} />
               <DisableControl member={member} isSelf={isSelf} />
               <div className="md:col-span-2">
                 <PasswordResetControl member={member} />
@@ -334,6 +346,54 @@ function DisableControl({ member, isSelf }: { member: Member; isSelf: boolean })
           <Ban className="h-4 w-4" />
         )}
         {isDisabled ? "Re-enable Account" : "Disable Account"}
+      </button>
+      <StatusMessage message={message} />
+    </div>
+  );
+}
+
+function ApprovalControl({ member }: { member: Member }) {
+  const [isApproved, setIsApproved] = useState(member.is_approved);
+  const [isPending, startTransition] = useTransition();
+  const [message, setMessage] = useState<StatusMessageValue>(null);
+
+  function handleToggle() {
+    const next = !isApproved;
+    setMessage(null);
+    startTransition(async () => {
+      const result = await toggleMemberApproval(member.id, next);
+      if (result.status === "error") {
+        setMessage({ type: "error", text: result.message ?? "" });
+        return;
+      }
+      setIsApproved(next);
+      setMessage({ type: "success", text: result.message ?? "" });
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
+        Approval
+      </h3>
+      <button
+        type="button"
+        onClick={handleToggle}
+        disabled={isPending}
+        className={`flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:w-fit ${
+          isApproved
+            ? "border-error/30 bg-off-white text-error hover:bg-error-bg"
+            : "border-forest/40 bg-off-white text-forest hover:bg-forest/10"
+        }`}
+      >
+        {isPending ? (
+          <LoaderCircle className="h-4 w-4 animate-spin" />
+        ) : isApproved ? (
+          <Hourglass className="h-4 w-4" />
+        ) : (
+          <CircleCheck className="h-4 w-4" />
+        )}
+        {isApproved ? "Revoke Approval" : "Approve Member"}
       </button>
       <StatusMessage message={message} />
     </div>

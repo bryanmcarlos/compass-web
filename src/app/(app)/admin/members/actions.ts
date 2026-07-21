@@ -93,6 +93,36 @@ export async function toggleMemberDisabled(
   return { status: "success", message: isDisabled ? "Account disabled." : "Account re-enabled." };
 }
 
+export async function toggleMemberApproval(
+  memberId: string,
+  isApproved: boolean,
+): Promise<MemberActionState> {
+  const { supabase, user, isAdmin } = await requireAdmin();
+
+  if (!user) {
+    return { status: "error", message: "You need to be signed in." };
+  }
+  if (!isAdmin) {
+    return { status: "error", message: "Only Super Admins can approve members." };
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ is_approved: isApproved })
+    .eq("id", memberId);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [toggleMemberApproval]:", error);
+    return {
+      status: "error",
+      message: "Couldn't update this member's approval status. Please try again.",
+    };
+  }
+
+  revalidatePath("/admin/members");
+  return { status: "success", message: isApproved ? "Member approved." : "Approval revoked." };
+}
+
 export async function updateMemberFields(
   _prevState: MemberActionState,
   formData: FormData,
