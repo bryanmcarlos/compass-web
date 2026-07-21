@@ -8,6 +8,7 @@ import {
   CircleUser,
   LayoutDashboard,
   ShieldCheck,
+  Award,
   Settings,
 } from "lucide-react";
 import type { ComponentType } from "react";
@@ -33,6 +34,12 @@ const EQUIPMENT_REVIEW_NAV_ITEM: NavItem = {
   icon: ShieldCheck,
 };
 
+const PROMOTIONS_REVIEW_NAV_ITEM: NavItem = {
+  label: "Promotions Review",
+  href: "/promotions-review",
+  icon: Award,
+};
+
 const ADMIN_NAV_ITEM: NavItem = {
   label: "Admin Settings",
   href: "/admin",
@@ -41,30 +48,31 @@ const ADMIN_NAV_ITEM: NavItem = {
 
 // Literal class strings — Tailwind's build-time scanner can't resolve a
 // template-literal `grid-cols-${n}`, so every count the item list can
-// actually produce (4 base, +1 Equipment Review, +1 Admin Settings) needs
-// its own entry here.
+// actually produce (4 base, +1 Equipment Review, +1 Promotions Review, +1
+// Admin Settings) needs its own entry here.
 const GRID_COLS_CLASS: Record<number, string> = {
   4: "grid-cols-4",
   5: "grid-cols-5",
   6: "grid-cols-6",
+  7: "grid-cols-7",
 };
 
 export function Sidebar({
   isAdmin = false,
-  canReviewEquipment = false,
+  isMarshalOrAdmin = false,
 }: {
   isAdmin?: boolean;
-  canReviewEquipment?: boolean;
+  isMarshalOrAdmin?: boolean;
 }) {
   const pathname = usePathname();
 
-  // Base 4 tabs for regular members, plus whichever of "Equipment Review"
-  // (Marshals and Admins) and "Admin Settings" (Admins only) apply — an
-  // Admin who isn't a Marshal still gets Equipment Review via the OR, same
-  // isMarshal||isAdmin convention used for reviewing trip reports.
+  // Base 4 tabs for regular members, plus whichever of "Equipment Review" /
+  // "Promotions Review" (Marshals and Admins) and "Admin Settings" (Admins
+  // only) apply — an Admin who isn't a Marshal still gets both review links
+  // via the OR, same isMarshal||isAdmin convention used for trip reports.
   const items = [
     ...NAV_ITEMS,
-    ...(canReviewEquipment ? [EQUIPMENT_REVIEW_NAV_ITEM] : []),
+    ...(isMarshalOrAdmin ? [EQUIPMENT_REVIEW_NAV_ITEM, PROMOTIONS_REVIEW_NAV_ITEM] : []),
     ...(isAdmin ? [ADMIN_NAV_ITEM] : []),
   ];
 
@@ -84,8 +92,8 @@ export function Sidebar({
       </div>
 
       {/* A CSS grid (rather than flex + justify-around) on mobile gives every
-          tab an exactly equal-width column regardless of the item count (4,
-          5, or 6 depending on Marshal/Admin status) — so a long label like
+          tab an exactly equal-width column regardless of the item count (4
+          through 7 depending on Marshal/Admin status) — so a long label like
           "Official Drives" wrapping to two lines never eats into a
           neighboring tab's space. Tailwind's scanner needs complete class
           strings in source, so this can't be a template-literal
