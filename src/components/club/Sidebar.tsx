@@ -17,6 +17,16 @@ import { CLUB_CONFIG } from "@/lib/constants";
 
 type NavItem = {
   label: string;
+  /** Shorter form for the mobile bottom bar, where up to 7 columns share a
+   * ~375px screen — "Promotions Review"/"Equipment Review" are the two
+   * longest labels in the set and, at that column width, an unbreakable
+   * word like "Promotions" is wider than its column even with wrapping
+   * allowed, which forces the whole fixed-position nav (and, because
+   * `position: fixed` escapes `overflow-x-hidden` on an ancestor, the
+   * entire page) wider than the viewport. Falls back to `label` when equal
+   * length is already safe (see the base 4, which fit fine at 4-6 columns
+   * and always have at desktop where this isn't rendered anyway). */
+  mobileLabel?: string;
   href: string;
   icon: ComponentType<{ className?: string }>;
 };
@@ -30,18 +40,21 @@ const NAV_ITEMS: NavItem[] = [
 
 const EQUIPMENT_REVIEW_NAV_ITEM: NavItem = {
   label: "Equipment Review",
+  mobileLabel: "Equipment",
   href: "/equipment-review",
   icon: ShieldCheck,
 };
 
 const PROMOTIONS_REVIEW_NAV_ITEM: NavItem = {
   label: "Promotions Review",
+  mobileLabel: "Promotions",
   href: "/promotions-review",
   icon: Award,
 };
 
 const ADMIN_NAV_ITEM: NavItem = {
   label: "Admin Settings",
+  mobileLabel: "Admin",
   href: "/admin",
   icon: Settings,
 };
@@ -101,17 +114,17 @@ export function Sidebar({
       <ul
         className={`grid w-full items-center gap-1 ${GRID_COLS_CLASS[items.length] ?? "grid-cols-4"} lg:flex lg:flex-col lg:items-stretch`}
       >
-        {items.map(({ label, href, icon: Icon }) => {
+        {items.map(({ label, mobileLabel, href, icon: Icon }) => {
           const isActive =
             href === "/" ? pathname === "/" : pathname.startsWith(href);
 
           return (
-            <li key={href} className="lg:w-full">
+            <li key={href} className="min-w-0 lg:w-full">
               <Link
                 href={href}
                 aria-current={isActive ? "page" : undefined}
                 className={`
-                  flex flex-col items-center gap-1 rounded-lg px-1 py-2 text-center text-xs
+                  flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center text-xs
                   leading-tight transition-colors
                   lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5 lg:text-sm lg:font-medium
                   ${
@@ -122,7 +135,8 @@ export function Sidebar({
                 `}
               >
                 <Icon className="h-5 w-5 shrink-0" />
-                <span>{label}</span>
+                <span className="min-w-0 truncate lg:hidden">{mobileLabel ?? label}</span>
+                <span className="hidden lg:inline">{label}</span>
               </Link>
             </li>
           );
