@@ -7,6 +7,7 @@ import {
   BookOpen,
   CircleUser,
   LayoutDashboard,
+  ShieldCheck,
   Settings,
 } from "lucide-react";
 import type { ComponentType } from "react";
@@ -26,19 +27,46 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Profile", href: "/profile", icon: CircleUser },
 ];
 
+const EQUIPMENT_REVIEW_NAV_ITEM: NavItem = {
+  label: "Equipment Review",
+  href: "/equipment-review",
+  icon: ShieldCheck,
+};
+
 const ADMIN_NAV_ITEM: NavItem = {
   label: "Admin Settings",
   href: "/admin",
   icon: Settings,
 };
 
-export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
+// Literal class strings — Tailwind's build-time scanner can't resolve a
+// template-literal `grid-cols-${n}`, so every count the item list can
+// actually produce (4 base, +1 Equipment Review, +1 Admin Settings) needs
+// its own entry here.
+const GRID_COLS_CLASS: Record<number, string> = {
+  4: "grid-cols-4",
+  5: "grid-cols-5",
+  6: "grid-cols-6",
+};
+
+export function Sidebar({
+  isAdmin = false,
+  canReviewEquipment = false,
+}: {
+  isAdmin?: boolean;
+  canReviewEquipment?: boolean;
+}) {
   const pathname = usePathname();
 
-  // Exactly 4 tabs for regular members; a 5th (Admin Settings) appears only
-  // for admins, always last — both counts render through the same list so
-  // mobile and desktop never need separate admin-only markup.
-  const items = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
+  // Base 4 tabs for regular members, plus whichever of "Equipment Review"
+  // (Marshals and Admins) and "Admin Settings" (Admins only) apply — an
+  // Admin who isn't a Marshal still gets Equipment Review via the OR, same
+  // isMarshal||isAdmin convention used for reviewing trip reports.
+  const items = [
+    ...NAV_ITEMS,
+    ...(canReviewEquipment ? [EQUIPMENT_REVIEW_NAV_ITEM] : []),
+    ...(isAdmin ? [ADMIN_NAV_ITEM] : []),
+  ];
 
   return (
     <nav
@@ -56,13 +84,14 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
       </div>
 
       {/* A CSS grid (rather than flex + justify-around) on mobile gives every
-          tab an exactly equal-width column regardless of whether there are 4
-          or 5 — so a long label like "Official Drives" wrapping to two lines
-          never eats into a neighboring tab's space. */}
+          tab an exactly equal-width column regardless of the item count (4,
+          5, or 6 depending on Marshal/Admin status) — so a long label like
+          "Official Drives" wrapping to two lines never eats into a
+          neighboring tab's space. Tailwind's scanner needs complete class
+          strings in source, so this can't be a template-literal
+          `grid-cols-${n}` — it's a lookup instead. */}
       <ul
-        className={`grid w-full items-center gap-1 ${
-          items.length === 5 ? "grid-cols-5" : "grid-cols-4"
-        } lg:flex lg:flex-col lg:items-stretch`}
+        className={`grid w-full items-center gap-1 ${GRID_COLS_CLASS[items.length] ?? "grid-cols-4"} lg:flex lg:flex-col lg:items-stretch`}
       >
         {items.map(({ label, href, icon: Icon }) => {
           const isActive =

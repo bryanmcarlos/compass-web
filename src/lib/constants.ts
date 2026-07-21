@@ -288,3 +288,9 @@ export const COMPASS_RANKS: Record<0 | 1 | 2 | 3 | 4 | 5, RankCurriculum> = {
     isMax: true,
   },
 };
+
+/** The 15-point mandatory gear check for Newbie -> Rookie promotion — the
+ * same list as `COMPASS_RANKS[1].toolsRequired` above, just re-exported
+ * under its own name for the Equipment Portal / Marshal Verification code
+ * to depend on without reaching into the rank curriculum object directly. */
+export const MANDATORY_EQUIPMENT: string[] = COMPASS_RANKS[1].toolsRequired ?? [];

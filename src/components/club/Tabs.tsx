@@ -35,7 +35,7 @@ export function Tabs({
   return (
     <div
       role="tablist"
-      className="flex w-full gap-1 overflow-x-auto rounded-xl border border-sand bg-sand-light/50 p-1"
+      className="flex w-full flex-nowrap gap-1 overflow-x-auto whitespace-nowrap rounded-xl border border-sand bg-sand-light/50 p-1 scrollbar-none"
     >
       {tabs.map((tab) => {
         const isActive = tab.key === activeKey;

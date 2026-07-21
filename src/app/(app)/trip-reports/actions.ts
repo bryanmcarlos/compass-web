@@ -2,18 +2,9 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { v2 as cloudinary } from "cloudinary";
 import { createClient } from "@/utils/supabase/server";
 import { validateImageFile } from "@/lib/imageUpload";
-
-// Configured once at module scope from server-only env vars — never sent to
-// the client, and this file has no "use client" escape hatch for it to leak
-// through even accidentally.
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { cloudinaryConfigured, uploadBufferToCloudinary } from "@/lib/cloudinary";
 
 export type SubmitReportState = {
   status: "idle" | "error" | "success";
@@ -61,7 +52,7 @@ export async function uploadImageToCloudinary(formData: FormData): Promise<Uploa
     return { status: "error", message: validation.message };
   }
 
-  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+  if (!cloudinaryConfigured()) {
     console.error(
       "SERVER ACTION ERROR [uploadImageToCloudinary]: CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET are not set.",
     );
@@ -72,54 +63,18 @@ export async function uploadImageToCloudinary(formData: FormData): Promise<Uploa
   }
 
   const buffer = Buffer.from(await validation.file.arrayBuffer());
+  const result = await uploadBufferToCloudinary(buffer, "compass_trip_reports");
 
-  // Guards against exactly the "hangs indefinitely" symptom, independent of
-  // whatever the underlying cause turns out to be on a given request (slow
-  // mobile upload link, a stalled socket to Cloudinary, a serverless
-  // platform silently dropping the connection rather than erroring it) —
-  // this makes sure the Server Action always settles one way or the other
-  // within a bounded time instead of leaving the browser waiting forever.
-  const UPLOAD_TIMEOUT_MS = 25_000;
-
-  try {
-    const result = await Promise.race([
-      new Promise<{ secure_url: string }>((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          { folder: "compass_trip_reports" },
-          (error, uploadResult) => {
-            if (error || !uploadResult) {
-              reject(error ?? new Error("Cloudinary returned no result."));
-              return;
-            }
-            resolve(uploadResult);
-          },
-        );
-        // Belt-and-suspenders alongside the upload_stream callback above —
-        // if the underlying socket errors out at the stream level rather
-        // than Cloudinary's API cleanly responding with an error, this is
-        // what actually catches it instead of the promise never settling.
-        uploadStream.on("error", reject);
-        uploadStream.end(buffer);
-      }),
-      new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error("UPLOAD_TIMEOUT")),
-          UPLOAD_TIMEOUT_MS,
-        );
-      }),
-    ]);
-
-    return { status: "success", message: "Photo uploaded.", url: result.secure_url };
-  } catch (err) {
-    console.error("SERVER ACTION ERROR [uploadImageToCloudinary]:", err);
-    const timedOut = err instanceof Error && err.message === "UPLOAD_TIMEOUT";
+  if (!result.ok) {
     return {
       status: "error",
-      message: timedOut
+      message: result.timedOut
         ? "This upload is taking too long — check your connection and try again."
         : "Couldn't upload this photo. Please try again.",
     };
   }
+
+  return { status: "success", message: "Photo uploaded.", url: result.url };
 }
 
 /** Applies the Member -> Newbie auto-promotion and posts a celebratory

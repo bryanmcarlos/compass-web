@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { TrendingUp, Lock, Award, CircleCheck, Circle } from "lucide-react";
+import { TrendingUp, Lock, Award, CircleCheck, Circle, Wrench } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { ErrorState } from "@/components/club/StateMessage";
 import { AvatarUploadForm } from "@/components/club/AvatarUploadForm";
@@ -77,7 +78,24 @@ export default async function ProfilePage() {
     curriculum?.requiredDrives ??
     curriculum?.requiredSupervisedLeads ??
     CLUB_CONFIG.rules.requiredDrivesForPromotion;
-  const qualifies = nextRank !== null && approvedDrives >= threshold;
+
+  // Equipment verification only gates the ranks whose curriculum actually
+  // lists toolsRequired (today, just Newbie -> Rookie) — data-driven off
+  // the same curriculum object rather than hardcoded to rank 1, so a future
+  // rank with its own toolsRequired picks this up automatically.
+  const requiredEquipmentCount = curriculum?.toolsRequired?.length ?? 0;
+  let verifiedEquipmentCount = 0;
+  if (requiredEquipmentCount > 0) {
+    const { count } = await supabase
+      .from("equipment_verifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profile.id)
+      .eq("status", "verified");
+    verifiedEquipmentCount = count ?? 0;
+  }
+  const equipmentQualifies = verifiedEquipmentCount >= requiredEquipmentCount;
+
+  const qualifies = nextRank !== null && approvedDrives >= threshold && equipmentQualifies;
   const progressPct = nextRank
     ? Math.min((approvedDrives / threshold) * 100, 100)
     : 100;
@@ -206,6 +224,26 @@ export default async function ProfilePage() {
               </div>
             )}
 
+            {requiredEquipmentCount > 0 && (
+              <div className="flex flex-col gap-2 border-t border-sand pt-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-charcoal">
+                    Equipment Verification
+                  </h3>
+                  <span className="text-xs font-medium text-charcoal-light/70">
+                    {verifiedEquipmentCount}/{requiredEquipmentCount} Verified
+                  </span>
+                </div>
+                <Link
+                  href="/profile/equipment"
+                  className="flex w-fit items-center gap-1.5 rounded-lg border border-sand bg-sand-light px-3 py-2 text-xs font-semibold text-charcoal transition-colors hover:border-primary/50"
+                >
+                  <Wrench className="h-3.5 w-3.5" />
+                  {equipmentQualifies ? "View Equipment Checklist" : "Go to Equipment Checklist"}
+                </Link>
+              </div>
+            )}
+
             {qualifies ? (
               <RequestPromotionButton
                 targetRank={nextRank.level}
@@ -216,9 +254,21 @@ export default async function ProfilePage() {
               <div className="flex items-start gap-2 rounded-lg bg-sand-light px-3 py-2.5 text-sm text-charcoal-light/90">
                 <Lock className="mt-0.5 h-4 w-4 shrink-0 text-charcoal-light/60" />
                 <span>
-                  Submit {remaining} more approved trip report
-                  {remaining === 1 ? "" : "s"} to unlock the {nextRank.title}{" "}
-                  examination request.
+                  {remaining > 0 && (
+                    <>
+                      Submit {remaining} more approved trip report
+                      {remaining === 1 ? "" : "s"} to unlock the {nextRank.title}{" "}
+                      examination request.
+                    </>
+                  )}
+                  {remaining > 0 && !equipmentQualifies && " "}
+                  {!equipmentQualifies && (
+                    <>
+                      Verify {requiredEquipmentCount - verifiedEquipmentCount} more equipment
+                      item{requiredEquipmentCount - verifiedEquipmentCount === 1 ? "" : "s"} to
+                      unlock the {nextRank.title} examination request.
+                    </>
+                  )}
                 </span>
               </div>
             )}

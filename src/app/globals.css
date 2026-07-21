@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* No core Tailwind utility hides a scrollbar while keeping the element
+   scrollable — used on horizontally-scrolling tab bars so an overflowing
+   set of tabs scrolls cleanly instead of showing a stray scrollbar. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 :root {
   --background: #faf8f4;
   --foreground: #262321;

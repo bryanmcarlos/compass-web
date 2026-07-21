@@ -14,10 +14,11 @@ export default async function AppGroupLayout({
   } = await supabase.auth.getUser();
 
   let isAdmin = false;
+  let canReviewEquipment = false;
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("is_admin, is_disabled, is_approved")
+      .select("is_admin, is_marshal, is_disabled, is_approved")
       .eq("id", user.id)
       .single();
 
@@ -34,7 +35,12 @@ export default async function AppGroupLayout({
       redirect("/pending-approval");
     }
     isAdmin = profile?.is_admin ?? false;
+    canReviewEquipment = Boolean(profile?.is_marshal || profile?.is_admin);
   }
 
-  return <Layout isAdmin={isAdmin}>{children}</Layout>;
+  return (
+    <Layout isAdmin={isAdmin} canReviewEquipment={canReviewEquipment}>
+      {children}
+    </Layout>
+  );
 }

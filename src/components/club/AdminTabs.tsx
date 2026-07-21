@@ -14,7 +14,7 @@ export function AdminTabs() {
   const pathname = usePathname();
 
   return (
-    <div className="flex gap-1 border-b border-sand">
+    <div className="flex flex-nowrap gap-1 overflow-x-auto border-b border-sand whitespace-nowrap scrollbar-none">
       {TABS.map(({ label, href, icon: Icon }) => {
         const isActive = pathname.startsWith(href);
         return (
@@ -22,7 +22,7 @@ export function AdminTabs() {
             key={href}
             href={href}
             aria-current={isActive ? "page" : undefined}
-            className={`flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+            className={`flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
               isActive
                 ? "border-primary text-primary"
                 : "border-transparent text-charcoal-light/70 hover:text-charcoal"

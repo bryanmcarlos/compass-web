@@ -234,6 +234,32 @@ export async function requestPromotion(
     };
   }
 
+  // Re-derive the equipment gate server-side too — never trust that the
+  // client-side qualifies check on /profile wasn't bypassed. Only actually
+  // constrains ranks whose curriculum lists toolsRequired (today, just
+  // Newbie -> Rookie); everything else has an empty requirement and passes.
+  const requiredEquipmentCount = curriculum?.toolsRequired?.length ?? 0;
+  if (requiredEquipmentCount > 0) {
+    const { count: verifiedEquipmentCount, error: equipmentCountError } = await supabase
+      .from("equipment_verifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("status", "verified");
+
+    if (equipmentCountError) {
+      return {
+        status: "error",
+        message: "Couldn't verify your equipment checklist. Please try again.",
+      };
+    }
+    if ((verifiedEquipmentCount ?? 0) < requiredEquipmentCount) {
+      return {
+        status: "error",
+        message: `You need all ${requiredEquipmentCount} equipment items verified to request this examination.`,
+      };
+    }
+  }
+
   const { data: existingRequest, error: existingError } = await supabase
     .from("promotion_requests")
     .select("id")
