@@ -135,20 +135,58 @@ export const CLUB_CONFIG: ClubConfig = {
  * above, this is real club content, not a white-label-swappable value —
  * a different club's curriculum would replace this object outright rather
  * than edit its fields.
+ *
+ * This is reference/source-of-truth data only, matching the club's official
+ * progression document — nothing in the app currently enforces most of it
+ * (e.g. must-skill ordering, exam unlock conditions, tools verification).
+ * Each field is a candidate for real enforcement logic when that specific
+ * piece gets built, not a promise that it's already wired up.
  */
 export type RankCurriculum = {
   name: string;
   requiredDrives?: number;
   requiredSupervisedLeads?: number;
   requiredTripReports?: number;
+  /** True when requiredTripReports must specifically come from Must-Skill
+   * drives, not just any drive the member attended — the official doc only
+   * draws this distinction starting at Rookie->Intermediate; Newbie->Rookie
+   * counts trip reports from any drive. */
+  tripReportsFromMustSkillDrives?: boolean;
   mustSkills?: string[];
+  /** When set, this exact string (already present in mustSkills) is the
+   * mandatory final must-skill drive for this rank — only bookable once
+   * every other must-skill and the required drive count are complete. */
+  gatedFinalMustSkill?: string;
   toolsRequired?: string[];
   challenges?: string[];
   milestones?: string[];
   isMax?: boolean;
 };
 
-export const COMPASS_RANKS: Record<1 | 2 | 3 | 4 | 5, RankCurriculum> = {
+/**
+ * Cross-cutting rules that apply across every rank transition rather than
+ * belonging to one specific rank's curriculum below. Reference data only,
+ * same caveat as RankCurriculum — nothing enforces these yet.
+ */
+export const GLOBAL_PROGRESSION_RULES = [
+  "Trip reports are always submitted against the actual drive, never a standalone skill.",
+  "A single drive may address 0, 1, 2, or 3 Must Skills, depending on what the drive covers.",
+  "A Must-Skill drive is only mandatory for a driver who wants to progress to the next rank — it's never required just to keep driving.",
+  "Golden Ticket Rule: participating in a GPS Challenge grants 1 Golden Ticket, redeemable in lieu of exactly 1 Must-Skill drive.",
+];
+
+export const COMPASS_RANKS: Record<0 | 1 | 2 | 3 | 4 | 5, RankCurriculum> = {
+  0: {
+    name: "Member (MEM)",
+    requiredDrives: 1,
+    requiredTripReports: 1,
+    milestones: [
+      "Register for an All Levels drive or your first Newbie (NWB) drive",
+      "Submit a trip report for that drive",
+      "Marshal verification, if trip report approval is enabled in system settings",
+      "Promotion to Newbie (NWB), with an optional celebratory announcement",
+    ],
+  },
   1: {
     name: "Newbie (NWB)",
     requiredDrives: 5,
@@ -160,25 +198,50 @@ export const COMPASS_RANKS: Record<1 | 2 | 3 | 4 | 5, RankCurriculum> = {
       "Egg Basket Training",
       "Intro to ROK", // Mandatory last drive in NWB
     ],
-    toolsRequired: ["Deflator", "Pressure Gauge", "Flag", "Radio"],
+    gatedFinalMustSkill: "Intro to ROK",
+    toolsRequired: [
+      "Two-way Radio",
+      "Deflation/Inflation Pressure Gauge",
+      "Air Compressor",
+      "Mounted Flag",
+      "Fire Extinguisher",
+      "Floor Jack (2Ton+)",
+      "Jack Baseboard",
+      "Kinetic Recovery Rope",
+      "Soft Shackles x2",
+      "Shovel",
+      "Good Condition Spare Tyre",
+      "Tyre Lug Nut Wrench",
+      "Front Recovery Points",
+      "Rear Recovery Points",
+      "First Aid Kit",
+    ],
   },
   2: {
     name: "Rookie (ROK)",
     requiredDrives: 5,
     requiredTripReports: 5,
+    tripReportsFromMustSkillDrives: true,
     mustSkills: [
       "Basic GPS Nav.",
       "Night Drive",
       "Traverse Drive",
       "Basic Recovery",
       "Pala Drive",
+      "Intro to INT", // Mandatory transition drive, taken after R1 & R2
     ],
-    toolsRequired: ["Offroad Lights", "GPS App (GAIA)"],
+    gatedFinalMustSkill: "Intro to INT",
+    toolsRequired: ["GPS", "Offroad Lights"],
+    challenges: [
+      "R1: Catch the Flag — buddy-system challenge, unlocked after all required drives/must-skills; mention your buddy's name in your challenge post",
+      "R2: Maze — individual challenge, unlocked after all required drives/must-skills",
+    ],
   },
   3: {
     name: "Intermediate (INT)",
     requiredDrives: 5,
     requiredTripReports: 5,
+    tripReportsFromMustSkillDrives: true,
     mustSkills: [
       "Technical & Fast-pace Drives",
       "Adv. GPS Proficiency",
@@ -186,23 +249,41 @@ export const COMPASS_RANKS: Record<1 | 2 | 3 | 4 | 5, RankCurriculum> = {
       "Solo – Night Drive",
       "Solo – Day Drive",
     ],
-    challenges: ["I1: Point & Shoot", "I2: Night Recon", "I3: King of the Hill (Liwa)"],
+    challenges: [
+      "I1: Point & Shoot — solo day drive focusing on compass bearing",
+      "I2: Night Recon — solo night drive focusing on GPS navigation",
+      "I3: King of the Hill — located in Liwa",
+    ],
+    milestones: [
+      "3 Solo GPS Proficiency Drives — night & day, minimum 50km each; inform your Marshal beforehand, then provide photo/video and a recorded GPX track",
+      "3 Intro Lead Drives",
+    ],
   },
   4: {
     name: "Advanced (ADV)",
     requiredSupervisedLeads: 10,
     requiredTripReports: 10,
+    tripReportsFromMustSkillDrives: true,
     mustSkills: [
       "Route Planning & Plotting",
       "Lead Must-Skill Drives (All Lvls)",
       "Convoy Management",
       "Accident Response/Recovery",
       "EXPLORATION (New Area/Route)",
-      "Mock GPS Challenge",
+      "Mock GPS Challenge (lead a team of INT/ADV drivers)",
     ],
-    milestones: ["Marshalship Training", "Marshals Vote", "Marshalship NWB Drive"],
+    milestones: [
+      "Marshalship Training — endorsement from Gen1 Marshals and training with active Marshals in leading Must-Skill drives at all levels",
+      "Marshals Vote — Council/Marshal vote approval",
+      "Marshalship NWB Drive — final marshalship drive assessment",
+    ],
   },
   5: {
+    // Permissions once reached (not progression requirements — this rank is
+    // the ceiling): post/lead drives, approve new user signups, check/
+    // verify/approve trip reports, and verify tools/exams. Already the
+    // actual enforced behavior via is_marshal/is_admin checks throughout
+    // the app, not something this reference object drives.
     name: "Marshal (MAR)",
     isMax: true,
   },

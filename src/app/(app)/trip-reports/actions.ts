@@ -122,6 +122,58 @@ export async function uploadImageToCloudinary(formData: FormData): Promise<Uploa
   }
 }
 
+/** Applies the Member -> Newbie auto-promotion and posts a celebratory
+ * announcement, if this report's author/drive combination qualifies —
+ * called at the moment a report actually *becomes* approved, whether
+ * that's immediately at submission (approval not required) or later when a
+ * marshal approves a previously-pending one. Best-effort throughout: the
+ * report itself already saved/approved successfully by the time this runs,
+ * so a failure here is logged, never surfaced as a failed request. Doesn't
+ * touch this registration's own drive_registrations row — driver_rank
+ * stays "Member" as a historically-accurate snapshot of what they were at
+ * registration time, not retroactively rewritten. */
+async function maybePromoteAndAnnounce(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  authorId: string,
+  driveId: string,
+): Promise<void> {
+  const [{ data: profile }, { data: drive }] = await Promise.all([
+    supabase.from("profiles").select("current_rank, username, full_name").eq("id", authorId).single(),
+    supabase.from("drives").select("allowed_ranks, is_all_levels, title").eq("id", driveId).single(),
+  ]);
+
+  const qualifies =
+    profile?.current_rank === 0 &&
+    !drive?.is_all_levels &&
+    drive?.allowed_ranks?.length === 1 &&
+    drive.allowed_ranks[0] === "1";
+
+  if (!qualifies) return;
+
+  const { error: promoteError } = await supabase
+    .from("profiles")
+    .update({ current_rank: 1 })
+    .eq("id", authorId);
+  if (promoteError) {
+    console.error("Failed to auto-promote Member to Newbie", promoteError);
+    return; // Don't post a congratulations for a promotion that didn't actually happen.
+  }
+
+  const memberName = profile?.full_name ?? profile?.username ?? "A member";
+  const { error: announceError } = await supabase.from("announcements").insert({
+    title: `🎉 ${memberName} is now a Newbie!`,
+    content: `${memberName} completed their first Newbie drive${
+      drive?.title ? ` (${drive.title})` : ""
+    } and has been promoted from Member to Newbie. Welcome to the club!`,
+    category: "Promotion",
+    target_rank: 1,
+    published_at: new Date().toISOString(),
+  });
+  if (announceError) {
+    console.error("Failed to post promotion announcement", announceError);
+  }
+}
+
 export async function submitTripReport(
   _prevState: SubmitReportState,
   formData: FormData,
@@ -176,32 +228,15 @@ export async function submitTripReport(
     };
   }
 
-  // Only populated when a Member (rank 0) submits a report for a pure
-  // Newbie-only drive — used after the insert below to auto-promote them.
-  // Fetched here (inside the existing driveId-gated block) rather than as a
-  // separate round trip.
-  let promoteToNewbie = false;
-
   // A floating report (no drive_id) has nothing to be "registered for" —
-  // both checks below only apply once a specific drive is targeted.
+  // this check only applies once a specific drive is targeted.
   if (driveId) {
-    const [{ data: registration }, { data: profileForPromo }, { data: driveForPromo }] =
-      await Promise.all([
-        supabase
-          .from("drive_registrations")
-          .select("id")
-          .eq("drive_id", driveId)
-          .eq("user_id", user.id)
-          .maybeSingle(),
-        supabase.from("profiles").select("current_rank").eq("id", user.id).single(),
-        supabase.from("drives").select("allowed_ranks, is_all_levels").eq("id", driveId).single(),
-      ]);
-
-    promoteToNewbie =
-      profileForPromo?.current_rank === 0 &&
-      !driveForPromo?.is_all_levels &&
-      driveForPromo?.allowed_ranks?.length === 1 &&
-      driveForPromo.allowed_ranks[0] === "1";
+    const { data: registration } = await supabase
+      .from("drive_registrations")
+      .select("id")
+      .eq("drive_id", driveId)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
     if (!registration) {
       return {
@@ -287,19 +322,15 @@ export async function submitTripReport(
     );
   }
 
-  // A Member's first trip report for their one Newbie-only drive
-  // auto-promotes them — best-effort, same as the audit log above, and
-  // deliberately doesn't touch this registration's own drive_registrations
-  // row: driver_rank stays "Member" as a historically-accurate snapshot of
-  // what they were at registration time, not retroactively rewritten.
-  if (promoteToNewbie) {
-    const { error: promoteError } = await supabase
-      .from("profiles")
-      .update({ current_rank: 1 })
-      .eq("id", user.id);
-    if (promoteError) {
-      console.error("Failed to auto-promote Member to Newbie", promoteError);
-    }
+  // Promotion only fires once the report is *actually* approved — when
+  // marshal approval isn't required, that's right now (is_approved was set
+  // true above); when it is required, this report is still pending and the
+  // equivalent call in approveTripReport handles it later instead. This was
+  // previously firing unconditionally at submission regardless of approval
+  // state — fixed to match the spec ("marshal approval... triggers rank
+  // promotion"), not "submission triggers it."
+  if (!requireApproval && driveId) {
+    await maybePromoteAndAnnounce(supabase, user.id, driveId);
   }
 
   revalidatePath("/trip-reports");
@@ -426,7 +457,7 @@ export async function approveTripReport(reportId: string): Promise<ApproveReport
     .from("trip_reports")
     .update({ is_approved: true })
     .eq("id", reportId)
-    .select("drive_id")
+    .select("drive_id, author_id")
     .single();
 
   if (error) {
@@ -446,6 +477,10 @@ export async function approveTripReport(reportId: string): Promise<ApproveReport
           ? "Couldn't approve this report — the database rejected the update (likely a missing permissions policy, not a client bug). See server logs / ask an admin to check RLS on trip_reports."
           : error.message,
     };
+  }
+
+  if (report?.drive_id && report.author_id) {
+    await maybePromoteAndAnnounce(supabase, report.author_id, report.drive_id);
   }
 
   revalidatePath("/trip-reports");
@@ -602,4 +637,67 @@ export async function deleteTripReport(reportId: string): Promise<DeleteReportSt
   }
 
   return { status: "success", message: "Trip report deleted." };
+}
+
+export type SubmitCommentState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+};
+
+export async function submitComment(
+  _prevState: SubmitCommentState,
+  formData: FormData,
+): Promise<SubmitCommentState> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", message: "You need to be signed in to comment." };
+  }
+
+  const reportId = String(formData.get("reportId") ?? "").trim();
+  const commentText = String(formData.get("commentText") ?? "").trim();
+
+  if (!reportId) {
+    return { status: "error", message: "Missing report." };
+  }
+  if (commentText.length === 0) {
+    return { status: "error", message: "Write something before posting." };
+  }
+  if (commentText.length > 2000) {
+    return { status: "error", message: "Comments are limited to 2000 characters." };
+  }
+
+  // Re-verify the report exists and is approved server-side — never trust a
+  // client-passed id, and this also blocks commenting on a pending report a
+  // viewer shouldn't legitimately be able to see yet.
+  const { data: report } = await supabase
+    .from("trip_reports")
+    .select("id, is_approved")
+    .eq("id", reportId)
+    .maybeSingle();
+
+  if (!report) {
+    return { status: "error", message: "Couldn't find that trip report." };
+  }
+  if (!report.is_approved) {
+    return { status: "error", message: "You can only comment on an approved trip report." };
+  }
+
+  const { error } = await supabase
+    .from("comments")
+    .insert({ trip_report_id: reportId, author_id: user.id, comment_text: commentText });
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [submitComment]:", error);
+    return { status: "error", message: "Couldn't post your comment. Please try again." };
+  }
+
+  revalidatePath("/trip-reports");
+
+  return { status: "success", message: "Comment posted." };
 }

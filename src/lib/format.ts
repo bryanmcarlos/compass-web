@@ -6,6 +6,28 @@ export function formatConvoyStatus(registeredDrivers: number, maxDrivers: number
   return `👥 ${registeredDrivers} / ${maxDrivers} Drivers Registered`;
 }
 
+/** "3 hours ago" / "in 2 days" style formatting for an ISO timestamp —
+ * shared by TripReportCard and CommentThread rather than duplicated. */
+export function formatRelativeTime(iso: string) {
+  const diffMinutes = Math.round((new Date(iso).getTime() - Date.now()) / 60_000);
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  const divisions: [Intl.RelativeTimeFormatUnit, number][] = [
+    ["year", 60 * 24 * 365],
+    ["month", 60 * 24 * 30],
+    ["week", 60 * 24 * 7],
+    ["day", 60 * 24],
+    ["hour", 60],
+    ["minute", 1],
+  ];
+
+  for (const [unit, minutesInUnit] of divisions) {
+    if (unit === "minute" || Math.abs(diffMinutes) >= minutesInUnit) {
+      return rtf.format(Math.round(diffMinutes / minutesInUnit), unit);
+    }
+  }
+  return rtf.format(diffMinutes, "minute");
+}
+
 /** Formats a Postgres `date` string (e.g. "2026-01-24") without shifting a day for the local timezone. */
 export function formatDate(dateStr: string) {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", {

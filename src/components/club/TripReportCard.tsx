@@ -5,8 +5,9 @@ import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
 import { rankNameFromLevel } from "@/lib/constants";
 import { DeleteReportButton } from "./DeleteReportButton";
+import { PhotoGallery } from "./PhotoGallery";
 import { markdownComponents } from "./markdownComponents";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatRelativeTime } from "@/lib/format";
 import { cleanReportText } from "@/lib/tripReportText";
 
 export type TripReportCardData = {
@@ -28,54 +29,6 @@ export type TripReportCardData = {
   } | null;
 };
 
-function formatRelativeTime(iso: string) {
-  const diffMinutes = Math.round((new Date(iso).getTime() - Date.now()) / 60_000);
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-  const divisions: [Intl.RelativeTimeFormatUnit, number][] = [
-    ["year", 60 * 24 * 365],
-    ["month", 60 * 24 * 30],
-    ["week", 60 * 24 * 7],
-    ["day", 60 * 24],
-    ["hour", 60],
-    ["minute", 1],
-  ];
-
-  for (const [unit, minutesInUnit] of divisions) {
-    if (unit === "minute" || Math.abs(diffMinutes) >= minutesInUnit) {
-      return rtf.format(Math.round(diffMinutes / minutesInUnit), unit);
-    }
-  }
-  return rtf.format(diffMinutes, "minute");
-}
-
-function PhotoGallery({ photos, reportAuthor }: { photos: string[]; reportAuthor: string }) {
-  const visible = photos.slice(0, 4);
-  const extra = photos.length - visible.length;
-
-  return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-      {visible.map((url, i) => (
-        <div
-          key={url}
-          className="relative aspect-square overflow-hidden rounded-lg border border-sand bg-sand-light"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary member-hosted URLs (Cloudinary/Imgur), no known remote domain to allowlist */}
-          <img
-            src={url}
-            alt={`Photo ${i + 1} from ${reportAuthor}'s trip report`}
-            loading="lazy"
-            className="h-full w-full object-cover"
-          />
-          {i === visible.length - 1 && extra > 0 && (
-            <div className="absolute inset-0 flex items-center justify-center bg-charcoal/60 text-sm font-semibold text-off-white">
-              +{extra}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /** Shared between the community feed, a single drive's "Trip Reports for
  * this Drive" section, and the report detail page — same card, three

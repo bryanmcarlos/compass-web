@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { TriangleAlert, CircleCheck, LoaderCircle, CircleAlert, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { TriangleAlert, CircleCheck, LoaderCircle, CircleAlert, Trash2, Route } from "lucide-react";
 import { approveTripReport, deleteTripReport } from "@/app/(app)/trip-reports/actions";
 import { Avatar } from "./Avatar";
 import { cleanReportText } from "@/lib/tripReportText";
@@ -15,6 +16,12 @@ export type PendingReport = {
     full_name: string | null;
     avatar_url: string | null;
   } | null;
+  /** Only populated by the site-wide /trip-reports?tab=pending caller — the
+   * existing per-drive caller (TripReportsTab) doesn't select this since
+   * the drive is already established by page context there, so it stays
+   * undefined and no chip renders — zero behavior change at that call
+   * site. */
+  drive?: { id: string; title: string } | null;
 };
 
 /** A short plain-text preview — strips the light markdown syntax this app's
@@ -118,6 +125,15 @@ export function PendingReportsReview({
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-charcoal">{authorName}</p>
+                  {report.drive && (
+                    <Link
+                      href={`/drives/${report.drive.id}`}
+                      className="flex w-fit items-center gap-1 text-xs font-medium text-forest hover:underline"
+                    >
+                      <Route className="h-3 w-3 shrink-0" />
+                      {report.drive.title}
+                    </Link>
+                  )}
                   <p className="text-sm break-words text-charcoal-light/80">
                     {snippet(report.report_text)}
                   </p>
