@@ -23,7 +23,6 @@ export type DriveFormState = {
   } | null;
 };
 
-const DIFFICULTIES = ["Easy", "Moderate", "Challenging", "Hard", "Extreme"];
 const STATUSES = ["Scheduled", "Completed", "Cancelled"];
 const CAMP_SCHEDULE_TYPES = ["Before the Drive", "After the Drive"];
 
@@ -112,7 +111,6 @@ type ParsedDriveFields =
  * enum values, numeric ranges, or which skills are valid for the chosen rank. */
 function parseDriveFields(formData: FormData): ParsedDriveFields {
   const title = String(formData.get("title") ?? "").trim();
-  const difficulty = String(formData.get("difficulty") ?? "");
   const status = String(formData.get("status") ?? "");
   const driveDate = String(formData.get("driveDate") ?? "").trim();
   const location = String(formData.get("location") ?? "").trim();
@@ -121,9 +119,6 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
 
   if (!title || !driveDate || !location) {
     return { ok: false, message: "Fill in the title, date, and location." };
-  }
-  if (!DIFFICULTIES.includes(difficulty)) {
-    return { ok: false, message: "Choose a valid difficulty." };
   }
   if (!STATUSES.includes(status)) {
     return { ok: false, message: "Choose a valid status." };
@@ -219,7 +214,11 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
       // case, since the form field never shows the prefix) or one that
       // still carries a stale prefix from before the target rank changed.
       title: applyDriveTitlePrefix(title, targetRank),
-      difficulty,
+      // Difficulty is no longer collected from the form or shown anywhere
+      // on the frontend — the column stays (still NOT NULL), so every
+      // insert/update just writes a fixed, unused value rather than making
+      // this a schema change.
+      difficulty: "Moderate",
       status,
       drive_date: driveDate,
       location,
@@ -227,6 +226,8 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
       max_drivers: maxDrivers,
       meeting_point_name: optionalText("meetingPointName"),
       coordinates: optionalText("coordinates"),
+      exit_location: optionalText("exitLocation"),
+      nearest_petrol_station: optionalText("nearestPetrolStation"),
       map_url: mapUrl,
       meeting_time: meetingTime,
       drive_start_time: driveStartTime,

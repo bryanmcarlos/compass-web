@@ -105,9 +105,9 @@ export default async function ProfilePage() {
           <h1 className="text-xl font-bold text-charcoal">{displayName}</h1>
           <p className="text-sm text-charcoal-light/70">@{profile.username}</p>
           <RankBadge
-            rank={currentRank.level}
+            rank={currentRank.title}
             className="mt-1 text-sm"
-            iconClassName="h-4 w-4"
+            size="xs"
           />
         </div>
         <p className="max-w-sm text-sm text-charcoal-light/80">

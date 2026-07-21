@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
-import { CLUB_CONFIG } from "@/lib/constants";
+import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
 import {
   updateMemberRank,
   toggleMemberDisabled,
@@ -171,7 +171,10 @@ function MemberRow({
           </div>
         </td>
         <td className="w-px px-2 py-3 whitespace-nowrap md:px-4">
-          <RankBadge rank={member.current_rank} className="text-[11px] md:text-xs" />
+          <RankBadge
+            rank={rankNameFromLevel(member.current_rank)}
+            className="text-[11px] md:text-xs"
+          />
         </td>
         <td className="w-px px-2 py-3 whitespace-nowrap md:px-4">
           {member.is_disabled ? (

@@ -1,61 +1,34 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  ArrowLeft,
-  Calendar,
-  MapPin,
-  MapPinned,
-  Clock,
-  Radio,
-  ClipboardList,
-  CheckSquare,
-  Users,
-  ExternalLink,
-  UserRound,
-  Lock,
-  CircleDashed,
-  ShieldAlert,
-  MessageCircle,
-  Settings,
-  Tent,
-  Megaphone,
-  Mountain,
-  PenLine,
-  ScrollText,
-  ChevronRight,
-  UserPlus,
-} from "lucide-react";
+import { ArrowLeft, Lock, ShieldAlert, Settings, Megaphone, CheckSquare, PenLine } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
-import {
-  DifficultyBadge,
-  StatusIndicator,
-  type DriveDifficulty,
-  type DriveStatus,
-} from "@/components/club/DriveBadges";
-import { Avatar } from "@/components/club/Avatar";
-import { RankBadge } from "@/components/club/RankBadge";
 import { RegisterDriveForm } from "@/components/club/RegisterDriveForm";
 import { UnregisterButton } from "@/components/club/UnregisterButton";
 import { CopyRosterButton } from "@/components/club/CopyRosterButton";
-import { TripReportCard, type TripReportCardData } from "@/components/club/TripReportCard";
-import { PendingReportsReview, type PendingReport } from "@/components/club/PendingReportsReview";
-import { AssignDriverSlotModal } from "@/components/club/AssignDriverSlotModal";
+import { Tabs } from "@/components/club/Tabs";
+import { DriveHero } from "./DriveHero";
+import { RouteLogisticsTab } from "./tabs/RouteLogisticsTab";
+import { ConvoyRosterTab, type Registration } from "./tabs/ConvoyRosterTab";
+import { TripReportsTab } from "./tabs/TripReportsTab";
+import type { TripReportCardData } from "@/components/club/TripReportCard";
+import type { PendingReport } from "@/components/club/PendingReportsReview";
 import { CLUB_CONFIG } from "@/lib/constants";
-import { formatDate, formatTime } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
 import { getAppSettings } from "@/lib/appSettings";
-import { formatDriveNotes } from "@/lib/driveNotesText";
+import type { DriveStatus } from "@/components/club/DriveBadges";
 
 type DriveDetail = {
   id: string;
   drive_id_code: string;
   title: string;
-  difficulty: DriveDifficulty;
   status: DriveStatus;
   drive_date: string;
   location: string;
   meeting_point_name: string | null;
   coordinates: string | null;
+  exit_location: string | null;
+  nearest_petrol_station: string | null;
   map_url: string | null;
   meeting_time: string | null;
   drive_start_time: string | null;
@@ -71,42 +44,13 @@ type DriveDetail = {
   camp_location: string | null;
   camp_coordinates: string | null;
   camp_schedule_type: string | null;
-  lead_marshal: { username: string; full_name: string | null } | null;
+  lead_marshal: { username: string; full_name: string | null; current_rank: number } | null;
   /** Freeform historical notes carried over from this drive's old
    * forum/WhatsApp brief — nullable like every other optional column here,
    * matching Supabase's actual `null` (not `undefined`) for an unset
    * column. */
   drive_notes: string | null;
 };
-
-type RegistrationUser = {
-  id: string;
-  username: string;
-  full_name: string | null;
-  avatar_url: string | null;
-  current_rank: number;
-  is_mit: boolean;
-  mobile_number: string | null;
-  car_details: string | null;
-};
-
-type Registration = {
-  id: string;
-  role: RegistrationRole;
-  joining_camp: boolean;
-  user: RegistrationUser | null;
-};
-
-/** "[Nickname/Username] - [Car Details] - [Mobile Number]", omitting any part that's unset. */
-function formatAttendeeLine(user: RegistrationUser) {
-  return [user.full_name ?? user.username, user.car_details, user.mobile_number]
-    .filter(Boolean)
-    .join(" - ");
-}
-
-function rankColorVarFor(rank: number | undefined) {
-  return CLUB_CONFIG.ranks.find((r) => r.level === rank)?.colorVar;
-}
 
 function rankTitleFor(rank: number | undefined) {
   return CLUB_CONFIG.ranks.find((r) => r.level === rank)?.title ?? "Member";
@@ -121,236 +65,34 @@ function convoyRosterLines(registrations: Registration[]) {
     .map((r) => `• ${r.user!.full_name ?? r.user!.username} (${rankTitleFor(r.user!.current_rank)})`);
 }
 
-/** null when there's no mobile number on file, or it strips down to nothing
- * — a broken wa.me link with an empty number is worse than no button. */
-function whatsAppDirectLink(user: RegistrationUser, driveTitle: string): string | null {
-  const digits = (user.mobile_number ?? "").replace(/[^\d+]/g, "").replace(/^\+/, "");
-  if (!digits) return null;
-
-  const name = user.full_name ?? user.username;
-  const message =
-    `Hey ${name}! Bryan here from COMPASS. Glad to have you registered for the ` +
-    `'${driveTitle}' drive. Just coordinating logistics—are you all set with your ` +
-    `deflation gear and radio? 🏜️`;
-
-  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
-}
-
-function WhatsAppQuickAction({
-  user,
-  driveTitle,
-}: {
-  user: RegistrationUser;
-  driveTitle: string;
-}) {
-  const link = whatsAppDirectLink(user, driveTitle);
-  if (!link) return null;
-
-  const name = user.full_name ?? user.username;
-  return (
-    <a
-      href={link}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={`Message ${name} on WhatsApp`}
-      aria-label={`Message ${name} on WhatsApp`}
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-forest/70 transition-colors hover:bg-forest/10 hover:text-forest"
-    >
-      <MessageCircle className="h-3.5 w-3.5" />
-    </a>
-  );
-}
-
-function RegistrationRow({
-  registration,
-  isSuperUser,
-  driveTitle,
-  driveId,
-  driveDate,
-  targetRank,
-  hasSupervisingMarshal,
-}: {
-  registration: Registration;
-  isSuperUser: boolean;
-  driveTitle: string;
-  driveId: string;
-  driveDate: string;
-  targetRank: number;
-  hasSupervisingMarshal: boolean;
-}) {
-  const { user } = registration;
-  const isMitCandidate = user?.current_rank === 4 && user.is_mit;
-
-  const rowContent = (
-    <span className="flex min-w-0 flex-1 items-center gap-3">
-      <Avatar
-        name={user?.full_name ?? user?.username ?? "Member"}
-        avatarUrl={user?.avatar_url ?? null}
-        rankColorVar={rankColorVarFor(user?.current_rank)}
-        className="h-8 w-8 text-xs"
-      />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">
-        {user ? formatAttendeeLine(user) : "Member"}
-      </span>
-      {isMitCandidate && (
-        <span className="shrink-0 rounded-full bg-forest/10 px-2 py-0.5 text-[10px] font-bold tracking-wide text-forest uppercase">
-          MIT
-        </span>
-      )}
-      {registration.joining_camp && (
-        <span
-          title="Joining for camping"
-          className="flex shrink-0 items-center gap-1 rounded-full bg-sand-light px-2 py-0.5 text-[10px] font-semibold text-charcoal-light/80"
-        >
-          <Tent className="h-3 w-3" />
-          Camping
-        </span>
-      )}
-      {user && (
-        <RankBadge
-          rank={user.current_rank}
-          className="ml-auto shrink-0 text-[11px]"
-          iconClassName="h-3 w-3"
-        />
-      )}
-    </span>
-  );
-
-  return (
-    <li className="flex items-center gap-3 rounded-lg border border-sand px-3 py-2">
-      {isSuperUser && user ? (
-        <AssignDriverSlotModal
-          mode="edit"
-          driveId={driveId}
-          driveTitle={driveTitle}
-          driveDate={driveDate}
-          targetRank={targetRank}
-          hasSupervisingMarshal={hasSupervisingMarshal}
-          registrationId={registration.id}
-          currentRole={registration.role}
-          member={user}
-          trigger={rowContent}
-        />
-      ) : (
-        rowContent
-      )}
-      {isSuperUser && user && <WhatsAppQuickAction user={user} driveTitle={driveTitle} />}
-    </li>
-  );
-}
-
-function SlotRow({
-  index,
-  registration,
-  isSuperUser,
-  driveTitle,
-  driveId,
-  driveDate,
-  targetRank,
-  hasSupervisingMarshal,
-}: {
-  index: number;
-  registration: Registration | undefined;
-  isSuperUser: boolean;
-  driveTitle: string;
-  driveId: string;
-  driveDate: string;
-  targetRank: number;
-  hasSupervisingMarshal: boolean;
-}) {
-  const filledContent = registration?.user && (
-    <span className="flex min-w-0 flex-1 items-center gap-3">
-      <Avatar
-        name={registration.user.full_name ?? registration.user.username}
-        avatarUrl={registration.user.avatar_url}
-        rankColorVar={rankColorVarFor(registration.user.current_rank)}
-        className="h-8 w-8 text-xs"
-      />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">
-        {formatAttendeeLine(registration.user)}
-      </span>
-      {registration.joining_camp && (
-        <span
-          title="Joining for camping"
-          className="flex shrink-0 items-center gap-1 rounded-full bg-sand-light px-2 py-0.5 text-[10px] font-semibold text-charcoal-light/80"
-        >
-          <Tent className="h-3 w-3" />
-          Camping
-        </span>
-      )}
-    </span>
-  );
-
-  return (
-    <li className="flex items-center gap-3 rounded-lg border border-sand px-3 py-2">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sand-light text-xs font-semibold text-charcoal-light/70">
-        {index + 1}
-      </span>
-      {registration?.user ? (
-        isSuperUser ? (
-          <AssignDriverSlotModal
-            mode="edit"
-            driveId={driveId}
-            driveTitle={driveTitle}
-            driveDate={driveDate}
-            targetRank={targetRank}
-            hasSupervisingMarshal={hasSupervisingMarshal}
-            registrationId={registration.id}
-            currentRole={registration.role}
-            member={registration.user}
-            trigger={filledContent}
-          />
-        ) : (
-          filledContent
-        )
-      ) : isSuperUser ? (
-        <AssignDriverSlotModal
-          mode="add"
-          driveId={driveId}
-          driveTitle={driveTitle}
-          driveDate={driveDate}
-          targetRank={targetRank}
-          hasSupervisingMarshal={hasSupervisingMarshal}
-          trigger={
-            <span className="flex flex-1 items-center gap-1.5 text-sm text-charcoal-light/50 italic transition-colors hover:text-forest hover:not-italic">
-              <CircleDashed className="h-4 w-4 shrink-0" />
-              Open slot — click to add
-            </span>
-          }
-        />
-      ) : (
-        <span className="flex items-center gap-1.5 text-sm text-charcoal-light/50 italic">
-          <CircleDashed className="h-4 w-4" />
-          Open slot
-        </span>
-      )}
-      {registration?.user && isSuperUser && (
-        <WhatsAppQuickAction user={registration.user} driveTitle={driveTitle} />
-      )}
-    </li>
-  );
-}
+const DETAIL_TABS = [
+  { key: "route", label: "Route & Logistics" },
+  { key: "roster", label: "Convoy Roster" },
+  { key: "reports", label: "Trip Reports" },
+];
 
 export default async function DriveDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ reportSubmitted?: string }>;
+  searchParams: Promise<{ reportSubmitted?: string; tab?: string }>;
 }) {
   const { id } = await params;
-  const { reportSubmitted } = await searchParams;
+  const { reportSubmitted, tab } = await searchParams;
+  const activeTab = DETAIL_TABS.some((t) => t.key === tab) ? tab : "route";
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("drives")
     .select(
-      `id, drive_id_code, title, difficulty, status, drive_date, location,
-       meeting_point_name, coordinates, map_url, meeting_time, drive_start_time, drive_end_time,
+      `id, drive_id_code, title, status, drive_date, location,
+       meeting_point_name, coordinates, exit_location, nearest_petrol_station, map_url,
+       meeting_time, drive_start_time, drive_end_time,
        radio_frequency, target_rank, max_drivers, equipment_requirements, banner_url,
        has_camp, camp_date, camp_time, camp_location, camp_coordinates, camp_schedule_type,
        drive_notes,
-       lead_marshal:profiles(username, full_name)`,
+       lead_marshal:profiles(username, full_name, current_rank)`,
     )
     .eq("id", id)
     .single()
@@ -490,7 +232,7 @@ export default async function DriveDetailPage({
 
   // Empty role groups are omitted entirely (no dangling "SUPPORTS" header
   // with nothing under it), and only actual registrants appear — the open
-  // slots shown in the Signup Sheet UI never make it into this text.
+  // slots shown in the Convoy Roster UI never make it into this text.
   const convoyRosterText = [
     "🏜️ COMPASS CLUB CONVOY ROSTER 🏜️",
     "",
@@ -514,8 +256,8 @@ export default async function DriveDetailPage({
   const broadcastLink = `https://wa.me/?text=${encodeURIComponent(broadcastMessage)}`;
 
   // Computed once, used in both the empty-state and has-reports layouts
-  // below, so the three-way Share / Edit / not-registered logic can't drift
-  // out of sync between them.
+  // inside TripReportsTab, so the three-way Share / Edit / not-registered
+  // logic can't drift out of sync between them.
   const reportCta = !myRegistration ? (
     <p className="text-xs text-charcoal-light/60">
       Only registered participants can file a report for this drive.
@@ -558,346 +300,53 @@ export default async function DriveDetailPage({
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-sand bg-off-white shadow-sm">
-        <div className="relative h-48 w-full sm:h-64">
-          {/* eslint-disable-next-line @next/next/no-img-element -- Supabase Storage / local default, no fixed remote domain to allowlist */}
-          <img
-            src={drive.banner_url || defaultDriveBannerUrl || "/defaults/desert-banner.svg"}
-            alt=""
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 bg-gradient-to-t from-charcoal/90 via-charcoal/15 to-transparent"
-          />
+      <DriveHero
+        driveIdCode={drive.drive_id_code}
+        title={drive.title}
+        status={drive.status}
+        targetRank={drive.target_rank}
+        bannerUrl={drive.banner_url}
+        defaultBannerUrl={defaultDriveBannerUrl}
+        driveDate={drive.drive_date}
+        meetingTime={drive.meeting_time}
+        meetingPointName={drive.meeting_point_name}
+        mapUrl={drive.map_url}
+        leadMarshal={drive.lead_marshal}
+        registeredDrivers={drivers.length}
+        maxDrivers={drive.max_drivers}
+      />
 
-          <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-4">
-            <span className="rounded-full bg-charcoal/50 px-2.5 py-1 font-mono text-xs font-medium tracking-wide text-off-white uppercase backdrop-blur-sm">
-              {drive.drive_id_code}
-            </span>
-            <span className="rounded-full bg-charcoal/50 px-2.5 py-1 text-xs font-semibold text-off-white backdrop-blur-sm">
-              Required Rank: {requiredRank?.title ?? drive.target_rank}
-            </span>
-          </div>
+      <Tabs tabs={DETAIL_TABS} defaultKey="route" />
 
-          <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 p-4 sm:p-5">
-            <h1 className="text-xl font-bold text-off-white drop-shadow-sm sm:text-2xl">
-              {drive.title}
-            </h1>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <StatusIndicator
-                status={drive.status}
-                className="rounded-full bg-charcoal/40 px-2 py-0.5 text-xs font-medium backdrop-blur-sm"
-              />
-              <DifficultyBadge difficulty={drive.difficulty} />
-            </div>
-          </div>
-        </div>
+      {activeTab === "route" && <RouteLogisticsTab drive={drive} />}
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 p-5 text-sm text-charcoal-light/90 sm:p-6">
-          <span className="flex items-center gap-1.5">
-            <Calendar className="h-4 w-4 shrink-0 text-charcoal-light/60" />
-            {formatDate(drive.drive_date)}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <MapPin className="h-4 w-4 shrink-0 text-charcoal-light/60" />
-            {drive.location}
-          </span>
-          {drive.lead_marshal && (
-            <span className="flex items-center gap-1.5">
-              <UserRound className="h-4 w-4 shrink-0 text-charcoal-light/60" />
-              Led by {drive.lead_marshal.full_name ?? drive.lead_marshal.username}
-            </span>
-          )}
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
-            <MapPinned className="h-4 w-4 text-forest" />
-            Meeting Point
-          </h2>
-          {drive.meeting_point_name && (
-            <p className="text-sm text-charcoal">{drive.meeting_point_name}</p>
-          )}
-          {drive.coordinates && (
-            <p className="font-mono text-xs text-charcoal-light/70">{drive.coordinates}</p>
-          )}
-          {drive.map_url && (
-            <a
-              href={drive.map_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex w-fit items-center gap-1.5 text-sm font-medium text-forest hover:underline"
-            >
-              Open in Maps
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
-            <Clock className="h-4 w-4 text-forest" />
-            Timing
-          </h2>
-          {(() => {
-            // Each row is decoupled and computed independently — a null,
-            // empty, or malformed value in one field never affects whether
-            // the others render, and formatTime() itself never throws.
-            const rows: [string, string | null][] = [
-              ["Meeting Time", formatTime(drive.meeting_time)],
-              ["Drive Start", formatTime(drive.drive_start_time)],
-              ["Expected End", formatTime(drive.drive_end_time)],
-            ];
-            const visibleRows = rows.filter(
-              (row): row is [string, string] => row[1] !== null,
-            );
-
-            if (visibleRows.length === 0) {
-              return (
-                <p className="text-sm text-charcoal-light/70 italic">
-                  Timing details to be confirmed by Marshal.
-                </p>
-              );
-            }
-
-            return (
-              <dl className="flex flex-col gap-1.5 text-sm">
-                {visibleRows.map(([label, value]) => (
-                  <div key={label} className="flex justify-between gap-3">
-                    <dt className="text-charcoal-light/70">{label}</dt>
-                    <dd className="font-medium text-charcoal">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            );
-          })()}
-          {drive.radio_frequency && (
-            <p className="flex items-center gap-1.5 border-t border-sand pt-2 text-sm text-charcoal-light/90">
-              <Radio className="h-4 w-4 shrink-0 text-charcoal-light/60" />
-              Channel {drive.radio_frequency}
-            </p>
-          )}
-        </div>
-
-        {drive.has_camp && (
-          <div className="flex flex-col gap-3 rounded-2xl border border-forest/30 bg-forest/5 p-5 shadow-sm">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
-              <Tent className="h-4 w-4 text-forest" />
-              ⛺ Camping Details
-            </h2>
-            {drive.camp_schedule_type && (
-              <span className="inline-flex w-fit items-center rounded-full bg-forest/10 px-2.5 py-1 text-xs font-semibold text-forest">
-                {drive.camp_schedule_type}
-              </span>
-            )}
-            <dl className="flex flex-col gap-1.5 text-sm">
-              {drive.camp_date && (
-                <div className="flex justify-between gap-3">
-                  <dt className="text-charcoal-light/70">Date</dt>
-                  <dd className="font-medium text-charcoal">{formatDate(drive.camp_date)}</dd>
-                </div>
-              )}
-              {drive.camp_time && (
-                <div className="flex justify-between gap-3">
-                  <dt className="text-charcoal-light/70">Time</dt>
-                  <dd className="font-medium text-charcoal">{formatTime(drive.camp_time)}</dd>
-                </div>
-              )}
-            </dl>
-            {drive.camp_location && (
-              <p className="text-sm text-charcoal">{drive.camp_location}</p>
-            )}
-            {drive.camp_coordinates && (
-              <>
-                <p className="font-mono text-xs text-charcoal-light/70">
-                  {drive.camp_coordinates}
-                </p>
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(drive.camp_coordinates)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex w-fit items-center gap-1.5 text-sm font-medium text-forest hover:underline"
-                >
-                  Open in Maps
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </>
-            )}
-          </div>
-        )}
-      </section>
-
-      {drive.equipment_requirements && drive.equipment_requirements.length > 0 && (
-        <section className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm sm:p-6">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
-            <ClipboardList className="h-4 w-4 text-forest" />
-            Equipment Requirements
-          </h2>
-          <ul className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
-            {drive.equipment_requirements.map((item) => (
-              <li key={item} className="flex items-center gap-2 text-sm text-charcoal-light/90">
-                <CheckSquare className="h-4 w-4 shrink-0 text-forest" />
-                {item}
-              </li>
-            ))}
-          </ul>
-        </section>
+      {activeTab === "roster" && (
+        <ConvoyRosterTab
+          leads={leads}
+          supports={supports}
+          drivers={drivers}
+          slotCount={slotCount}
+          isSuperUser={isSuperUser}
+          driveId={drive.id}
+          driveTitle={drive.title}
+          driveDate={drive.drive_date}
+          targetRank={drive.target_rank}
+          maxDrivers={drive.max_drivers}
+          hasSupervisingMarshal={hasSupervisingMarshal}
+        />
       )}
 
-      {drive.drive_notes && (
-        <section className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm sm:p-6">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
-            <ScrollText className="h-4 w-4 text-forest" />
-            Legacy Forum Notes
-          </h2>
-          <details className="group">
-            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-sm font-medium text-forest select-none hover:underline">
-              <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90" />
-              View original drive brief
-            </summary>
-            <pre className="mt-3 max-h-96 overflow-y-auto rounded-lg bg-sand-light/60 p-3 font-sans text-xs leading-relaxed whitespace-pre-wrap text-charcoal-light/90 sm:text-sm">
-              {formatDriveNotes(drive.drive_notes)}
-            </pre>
-          </details>
-        </section>
+      {activeTab === "reports" && (
+        <TripReportsTab
+          tripReports={tripReports}
+          pendingReports={pendingReports}
+          canReviewReports={canReviewReports}
+          isAdmin={isAdmin}
+          myRegistration={myRegistration}
+          myExistingReportId={myExistingReportId}
+          reportCta={reportCta}
+        />
       )}
-
-      <section className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
-            <Users className="h-4 w-4 text-forest" />
-            Signup Sheet
-          </h2>
-          {isSuperUser && (
-            <AssignDriverSlotModal
-              mode="add"
-              driveId={drive.id}
-              driveTitle={drive.title}
-              driveDate={drive.drive_date}
-              targetRank={drive.target_rank}
-              hasSupervisingMarshal={hasSupervisingMarshal}
-              trigger={
-                <span className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-off-white px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10">
-                  <UserPlus className="h-3.5 w-3.5" />
-                  Add Participant
-                </span>
-              }
-            />
-          )}
-        </div>
-
-        {leads.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
-              Lead
-            </h3>
-            <ul className="flex flex-col gap-2">
-              {leads.map((r) => (
-                <RegistrationRow
-                  key={r.id}
-                  registration={r}
-                  isSuperUser={isSuperUser}
-                  driveTitle={drive.title}
-                  driveId={drive.id}
-                  driveDate={drive.drive_date}
-                  targetRank={drive.target_rank}
-                  hasSupervisingMarshal={hasSupervisingMarshal}
-                />
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {supports.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
-              Supports
-            </h3>
-            <ul className="flex flex-col gap-2">
-              {supports.map((r) => (
-                <RegistrationRow
-                  key={r.id}
-                  registration={r}
-                  isSuperUser={isSuperUser}
-                  driveTitle={drive.title}
-                  driveId={drive.id}
-                  driveDate={drive.drive_date}
-                  targetRank={drive.target_rank}
-                  hasSupervisingMarshal={hasSupervisingMarshal}
-                />
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
-            Drivers ({drivers.length}/{drive.max_drivers})
-          </h3>
-          <ul className="flex flex-col gap-2">
-            {Array.from({ length: slotCount }).map((_, i) => (
-              <SlotRow
-                // Keyed by the real registration id, not the raw loop index
-                // — SlotRow's own AssignDriverSlotModal already identifies
-                // *which member* to edit via registration.id/registration.user
-                // (never the index), but keying the list by index alone
-                // could still let React reuse a slot's component instance
-                // (and its internal open/selected/role state) across a
-                // different underlying registration when drivers[] reorders
-                // between renders. Empty slots have no persisted identity to
-                // key by, so the index is fine for those.
-                key={drivers[i]?.id ?? `empty-slot-${i}`}
-                index={i}
-                registration={drivers[i]}
-                isSuperUser={isSuperUser}
-                driveTitle={drive.title}
-                driveId={drive.id}
-                driveDate={drive.drive_date}
-                targetRank={drive.target_rank}
-                hasSupervisingMarshal={hasSupervisingMarshal}
-              />
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      {canReviewReports && <PendingReportsReview reports={pendingReports} canDelete={isAdmin} />}
-
-      <section className="flex flex-col gap-4 rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/30 p-5 shadow-sm sm:p-6">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
-          <Mountain className="h-4 w-4 text-forest" />
-          Trip Reports for this Drive
-        </h2>
-
-        {tripReports.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-sand px-5 py-8 text-center">
-            <p className="max-w-sm text-sm text-charcoal-light/80">
-              {myRegistration && !myExistingReportId
-                ? "No trip reports filed for this adventure yet. Be the first to share yours!"
-                : "No trip reports filed for this adventure yet."}
-            </p>
-            {reportCta}
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {tripReports.map((report) => (
-                <TripReportCard
-                  key={report.id}
-                  report={report}
-                  linkToDetail
-                  showDriveContext={false}
-                  canDelete={isAdmin}
-                />
-              ))}
-            </div>
-            {myRegistration && <div className="self-center">{reportCta}</div>}
-          </>
-        )}
-      </section>
 
       {drive.status !== "Scheduled" ? (
         <section className="rounded-2xl border border-sand bg-sand-light px-5 py-4 text-center text-sm text-charcoal-light/80">

@@ -1,107 +1,215 @@
 import Link from "next/link";
-import { Compass, Route, Calendar, MapPin, UserRound, Lock, Plus } from "lucide-react";
+import { Compass, Route, Calendar, Clock, MapPin, UserRound, Lock, Plus } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { EmptyState, ErrorState } from "@/components/club/StateMessage";
-import {
-  StatusIndicator,
-  type DriveDifficulty,
-  type DriveStatus,
-} from "@/components/club/DriveBadges";
 import { RankBadge } from "@/components/club/RankBadge";
-import { formatDate } from "@/lib/format";
-import { CLUB_CONFIG } from "@/lib/constants";
+import { Tabs } from "@/components/club/Tabs";
+import { ArchiveDriveList, type ArchiveDrive } from "./ArchiveDriveList";
+import { formatDate, formatTime, formatConvoyStatus } from "@/lib/format";
+import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
 
-type Drive = {
+const DRIVES_TABS = [
+  { key: "upcoming", label: "Upcoming Runs" },
+  { key: "completed", label: "Completed Last 5" },
+  { key: "archive", label: "Completed Archive" },
+];
+
+// Three rows in the live data carry this Unix-epoch sentinel instead of a
+// real drive_date — excluded from date-ordered queries and the Archive's
+// default list/count rather than sorting to the top or silently vanishing
+// (see ArchiveDriveList's "+N unknown-date" line).
+const UNKNOWN_DATE_SENTINEL = "1970-01-01";
+
+type UpcomingDrive = {
   id: string;
   drive_id_code: string;
   title: string;
-  difficulty: DriveDifficulty;
-  status: DriveStatus;
+  drive_date: string;
+  drive_start_time: string | null;
+  location: string;
+  meeting_point_name: string | null;
+  target_rank: number;
+  max_drivers: number;
+};
+
+type CompletedDrive = {
+  id: string;
+  drive_id_code: string;
+  title: string;
   drive_date: string;
   location: string;
   target_rank: number;
+  max_drivers: number;
   lead_marshal: { username: string; full_name: string | null } | null;
 };
 
-function DriveCardContent({ drive }: { drive: Drive }) {
-  return (
+/** Batches a single `.in("drive_id", ids)` count query instead of one query
+ * per card — cheap regardless of tab size, and avoids an N+1 query pattern
+ * for what's otherwise a handful of drives per tab. */
+async function driverCountsByDrive(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  driveIds: string[],
+): Promise<Map<string, number>> {
+  if (driveIds.length === 0) return new Map();
+  const { data } = await supabase
+    .from("drive_registrations")
+    .select("drive_id")
+    .eq("role", "Driver")
+    .in("drive_id", driveIds);
+
+  const counts = new Map<string, number>();
+  for (const row of data ?? []) {
+    counts.set(row.drive_id, (counts.get(row.drive_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+async function reportCountsByDrive(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  driveIds: string[],
+): Promise<Map<string, number>> {
+  if (driveIds.length === 0) return new Map();
+  const { data } = await supabase
+    .from("trip_reports")
+    .select("drive_id")
+    .eq("is_approved", true)
+    .in("drive_id", driveIds);
+
+  const counts = new Map<string, number>();
+  for (const row of data ?? []) {
+    if (!row.drive_id) continue;
+    counts.set(row.drive_id, (counts.get(row.drive_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** `null` userRank means signed out — treated as below every rank requirement. */
+function UpcomingCard({
+  drive,
+  userRank,
+  registeredDrivers,
+}: {
+  drive: UpcomingDrive;
+  userRank: number | null;
+  registeredDrivers: number;
+}) {
+  const isLocked = userRank === null || userRank < drive.target_rank;
+  const requiredRank = CLUB_CONFIG.ranks.find((r) => r.level === drive.target_rank);
+
+  const body = (
     <>
       <div className="flex items-start justify-between gap-3">
-        <span className="font-mono text-xs font-medium tracking-wide text-charcoal-light/60 uppercase">
-          {drive.drive_id_code}
-        </span>
-        <RankBadge
-          rank={drive.target_rank}
-          className="shrink-0 gap-1.5 rounded-full bg-sand-light px-2.5 py-1 text-xs"
-        />
+        <h2 className="text-lg font-semibold text-charcoal">{drive.title}</h2>
+        <RankBadge rank={rankNameFromLevel(drive.target_rank)} size="xs" className="shrink-0" />
       </div>
-
-      <h2 className="text-lg font-semibold text-charcoal">{drive.title}</h2>
-
       <div className="flex flex-col gap-2 text-sm text-charcoal-light/90">
-        <StatusIndicator status={drive.status} />
         <span className="flex items-center gap-1.5">
           <Calendar className="h-4 w-4 shrink-0 text-charcoal-light/60" />
           {formatDate(drive.drive_date)}
+          {drive.drive_start_time && (
+            <>
+              <Clock className="ml-1 h-3.5 w-3.5 shrink-0 text-charcoal-light/60" />
+              {formatTime(drive.drive_start_time)}
+            </>
+          )}
         </span>
+        {drive.meeting_point_name && (
+          <span className="flex items-center gap-1.5">
+            <MapPin className="h-4 w-4 shrink-0 text-charcoal-light/60" />
+            {drive.meeting_point_name}
+          </span>
+        )}
+        <span className="text-charcoal-light/70">
+          {formatConvoyStatus(registeredDrivers, drive.max_drivers)}
+        </span>
+      </div>
+      <span
+        className={`flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+          isLocked ? "bg-sand-light text-charcoal-light/80" : "bg-forest/10 text-forest"
+        }`}
+      >
+        {isLocked ? (
+          <>
+            <Lock className="h-3.5 w-3.5" />
+            {userRank === null
+              ? "Sign in to check eligibility"
+              : `Locked: Required Rank ${requiredRank?.title ?? drive.target_rank}`}
+          </>
+        ) : (
+          "Eligible — tap to register"
+        )}
+      </span>
+    </>
+  );
+
+  if (isLocked) {
+    return (
+      <div
+        aria-disabled="true"
+        className="flex cursor-not-allowed flex-col gap-4 rounded-2xl border border-sand bg-off-white p-5 opacity-60 grayscale-[35%]"
+      >
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={`/drives/${drive.id}`}
+      className="flex flex-col gap-4 rounded-2xl border border-sand bg-off-white p-5 shadow-sm transition-shadow hover:shadow-md"
+    >
+      {body}
+    </Link>
+  );
+}
+
+function CompletedCard({
+  drive,
+  registeredDrivers,
+  hasReports,
+}: {
+  drive: CompletedDrive;
+  registeredDrivers: number;
+  hasReports: boolean;
+}) {
+  return (
+    <Link
+      href={`/drives/${drive.id}${hasReports ? "?tab=reports" : ""}`}
+      className="flex flex-col gap-4 rounded-2xl border border-sand bg-off-white p-5 shadow-sm transition-shadow hover:shadow-md"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-lg font-semibold text-charcoal">{drive.title}</h2>
+        <RankBadge rank={rankNameFromLevel(drive.target_rank)} size="xs" className="shrink-0" />
+      </div>
+      <div className="flex flex-col gap-2 text-sm text-charcoal-light/90">
+        {drive.lead_marshal && (
+          <span className="flex items-center gap-1.5">
+            <UserRound className="h-4 w-4 shrink-0 text-charcoal-light/60" />
+            Led by {drive.lead_marshal.full_name ?? drive.lead_marshal.username}
+          </span>
+        )}
         <span className="flex items-center gap-1.5">
           <MapPin className="h-4 w-4 shrink-0 text-charcoal-light/60" />
           {drive.location}
         </span>
-        {drive.lead_marshal && (
-          <span className="flex items-center gap-1.5">
-            <UserRound className="h-4 w-4 shrink-0 text-charcoal-light/60" />
-            Led by{" "}
-            {drive.lead_marshal.full_name ?? drive.lead_marshal.username}
-          </span>
-        )}
+        <span className="text-charcoal-light/70">
+          {formatConvoyStatus(registeredDrivers, drive.max_drivers)}
+        </span>
       </div>
-    </>
-  );
-}
-
-/** `null` userRank means signed out — treated as below every rank requirement. */
-function DriveCard({
-  drive,
-  userRank,
-}: {
-  drive: Drive;
-  userRank: number | null;
-}) {
-  const isLocked = userRank === null || userRank < drive.target_rank;
-
-  if (!isLocked) {
-    return (
-      <Link
-        href={`/drives/${drive.id}`}
-        className="flex flex-col gap-4 rounded-2xl border border-sand bg-off-white p-5 shadow-sm transition-shadow hover:shadow-md"
-      >
-        <DriveCardContent drive={drive} />
-      </Link>
-    );
-  }
-
-  const requiredRank = CLUB_CONFIG.ranks.find(
-    (r) => r.level === drive.target_rank,
-  );
-
-  return (
-    <div
-      aria-disabled="true"
-      className="flex cursor-not-allowed flex-col gap-4 rounded-2xl border border-sand bg-off-white p-5 opacity-60 grayscale-[35%]"
-    >
-      <DriveCardContent drive={drive} />
-      <span className="flex items-center gap-1.5 rounded-full bg-sand-light px-2.5 py-1 text-xs font-semibold text-charcoal-light/80">
-        <Lock className="h-3.5 w-3.5" />
-        {userRank === null
-          ? "Sign in to check eligibility"
-          : `Locked: Required Rank ${requiredRank?.title ?? drive.target_rank}`}
+      <span className="text-xs font-medium text-forest">
+        {hasReports ? "View Trip Reports →" : "No trip reports yet"}
       </span>
-    </div>
+    </Link>
   );
 }
 
-export default async function DrivesPage() {
+export default async function DrivesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab } = await searchParams;
+  const activeTab = DRIVES_TABS.some((t) => t.key === tab) ? tab! : "upcoming";
   const supabase = await createClient();
 
   const {
@@ -120,15 +228,81 @@ export default async function DrivesPage() {
     isMarshal = profile?.is_marshal ?? false;
   }
 
-  const { data, error } = await supabase
-    .from("drives")
-    .select(
-      "id, drive_id_code, title, difficulty, status, drive_date, location, target_rank, lead_marshal:profiles(username, full_name)",
-    )
-    .order("drive_date", { ascending: false })
-    .overrideTypes<Drive[], { merge: false }>();
+  // Always run (cheap, count-only) so tab labels are correct before ever
+  // switching tabs.
+  const [{ count: upcomingCount }, { count: archiveCount }] = await Promise.all([
+    supabase
+      .from("drives")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "Scheduled"),
+    supabase
+      .from("drives")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["Completed", "Cancelled"])
+      .neq("drive_date", UNKNOWN_DATE_SENTINEL),
+  ]);
 
-  const drives = data ?? [];
+  let error: string | null = null;
+  let upcomingDrives: UpcomingDrive[] = [];
+  let upcomingCounts = new Map<string, number>();
+  let completedDrives: CompletedDrive[] = [];
+  let completedDriverCounts = new Map<string, number>();
+  let completedReportCounts = new Map<string, number>();
+  let archiveDrives: ArchiveDrive[] = [];
+  let unknownDateCount = 0;
+
+  if (activeTab === "upcoming") {
+    const { data, error: fetchError } = await supabase
+      .from("drives")
+      .select(
+        "id, drive_id_code, title, drive_date, drive_start_time, location, meeting_point_name, target_rank, max_drivers",
+      )
+      .eq("status", "Scheduled")
+      .order("drive_date", { ascending: true })
+      .overrideTypes<UpcomingDrive[], { merge: false }>();
+    if (fetchError) error = fetchError.message;
+    upcomingDrives = data ?? [];
+    upcomingCounts = await driverCountsByDrive(
+      supabase,
+      upcomingDrives.map((d) => d.id),
+    );
+  } else if (activeTab === "completed") {
+    const { data, error: fetchError } = await supabase
+      .from("drives")
+      .select(
+        "id, drive_id_code, title, drive_date, location, target_rank, max_drivers, lead_marshal:profiles(username, full_name)",
+      )
+      .eq("status", "Completed")
+      .neq("drive_date", UNKNOWN_DATE_SENTINEL)
+      .order("drive_date", { ascending: false })
+      .limit(5)
+      .overrideTypes<CompletedDrive[], { merge: false }>();
+    if (fetchError) error = fetchError.message;
+    completedDrives = data ?? [];
+    const ids = completedDrives.map((d) => d.id);
+    [completedDriverCounts, completedReportCounts] = await Promise.all([
+      driverCountsByDrive(supabase, ids),
+      reportCountsByDrive(supabase, ids),
+    ]);
+  } else {
+    const [{ data, error: fetchError }, { count: unknownCount }] = await Promise.all([
+      supabase
+        .from("drives")
+        .select("id, drive_id_code, title, location, drive_date, target_rank, status")
+        .in("status", ["Completed", "Cancelled"])
+        .neq("drive_date", UNKNOWN_DATE_SENTINEL)
+        .order("drive_date", { ascending: false })
+        .overrideTypes<ArchiveDrive[], { merge: false }>(),
+      supabase
+        .from("drives")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["Completed", "Cancelled"])
+        .eq("drive_date", UNKNOWN_DATE_SENTINEL),
+    ]);
+    if (fetchError) error = fetchError.message;
+    archiveDrives = data ?? [];
+    unknownDateCount = unknownCount ?? 0;
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -157,20 +331,63 @@ export default async function DrivesPage() {
         )}
       </header>
 
+      <Tabs
+        tabs={[
+          { key: "upcoming", label: `Upcoming Runs (${upcomingCount ?? 0})` },
+          { key: "completed", label: "Completed Last 5" },
+          { key: "archive", label: `Completed Archive (${archiveCount ?? 0})` },
+        ]}
+        defaultKey="upcoming"
+      />
+
       {error ? (
         <ErrorState message="Couldn't load drives right now. Please try again shortly." />
-      ) : drives.length === 0 ? (
+      ) : activeTab === "upcoming" ? (
+        upcomingDrives.length === 0 ? (
+          <EmptyState
+            icon={Route}
+            title="No upcoming drives"
+            message="Official drives will show up here once a marshal schedules one."
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {upcomingDrives.map((drive) => (
+              <UpcomingCard
+                key={drive.id}
+                drive={drive}
+                userRank={userRank}
+                registeredDrivers={upcomingCounts.get(drive.id) ?? 0}
+              />
+            ))}
+          </div>
+        )
+      ) : activeTab === "completed" ? (
+        completedDrives.length === 0 ? (
+          <EmptyState
+            icon={Route}
+            title="No completed drives yet"
+            message="Completed drives will show up here once one wraps up."
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {completedDrives.map((drive) => (
+              <CompletedCard
+                key={drive.id}
+                drive={drive}
+                registeredDrivers={completedDriverCounts.get(drive.id) ?? 0}
+                hasReports={(completedReportCounts.get(drive.id) ?? 0) > 0}
+              />
+            ))}
+          </div>
+        )
+      ) : archiveDrives.length === 0 && unknownDateCount === 0 ? (
         <EmptyState
           icon={Route}
-          title="No drives yet"
-          message="Official drives will show up here once a marshal schedules one."
+          title="No archived drives"
+          message="Completed and cancelled drives will show up here."
         />
       ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-          {drives.map((drive) => (
-            <DriveCard key={drive.id} drive={drive} userRank={userRank} />
-          ))}
-        </div>
+        <ArchiveDriveList drives={archiveDrives} unknownDateCount={unknownDateCount} />
       )}
     </div>
   );

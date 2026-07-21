@@ -13,6 +13,7 @@ import { getAvailableRoles, ALL_REGISTRATION_ROLES, type RegistrationRole } from
 import { WAIVER_TEXT } from "./RegisterDriveForm";
 import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
+import { rankNameFromLevel } from "@/lib/constants";
 
 const initialState: AssignSlotState = { status: "idle", message: null };
 
@@ -259,7 +260,10 @@ export function AssignDriverSlotModal(props: Props) {
                         @{member.username}
                       </span>
                     </span>
-                    <RankBadge rank={member.current_rank} className="shrink-0 text-[11px]" />
+                    <RankBadge
+                      rank={rankNameFromLevel(member.current_rank)}
+                      className="shrink-0 text-[11px]"
+                    />
                   </button>
                 ))}
               </div>

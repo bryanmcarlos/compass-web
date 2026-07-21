@@ -1,3 +1,11 @@
+/** The one canonical rendering of a drive's driver-convoy count, used by the
+ * detail page hero and every /drives card. Counts role="Driver"
+ * registrations only — matches the existing "Drivers (X/Y)" roster header;
+ * Lead/Support registrants are never counted toward X or Y. */
+export function formatConvoyStatus(registeredDrivers: number, maxDrivers: number): string {
+  return `👥 ${registeredDrivers} / ${maxDrivers} Drivers Registered`;
+}
+
 /** Formats a Postgres `date` string (e.g. "2026-01-24") without shifting a day for the local timezone. */
 export function formatDate(dateStr: string) {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", {

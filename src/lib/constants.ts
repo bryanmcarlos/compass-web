@@ -5,6 +5,20 @@
  * page or component should hardcode club identity, copy, or rank names.
  */
 
+/** Display-name form of a rank, as used by RankBadge's image-based badges.
+ * "General" never corresponds to a real current_rank value today — every
+ * member's current_rank is a non-null 1-5 integer, so this is only reachable
+ * via a missing/out-of-range level. Kept as a real case (not just a type
+ * comment) so RankBadge already renders it gracefully whenever a nullable
+ * "unranked member" state is introduced later — that's a separate, larger
+ * change (it touches every rank-eligibility path in the app) and isn't part
+ * of this one. */
+export type RankName = "General" | "Newbie" | "Rookie" | "Intermediate" | "Advanced" | "Marshal";
+
+export function rankNameFromLevel(level: number | null | undefined): RankName {
+  return (CLUB_CONFIG.ranks.find((r) => r.level === level)?.title as RankName | undefined) ?? "General";
+}
+
 export type RankLevel = {
   /** 1 = lowest rank, 5 = highest. */
   level: 1 | 2 | 3 | 4 | 5;

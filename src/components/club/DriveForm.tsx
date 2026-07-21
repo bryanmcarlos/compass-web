@@ -28,15 +28,8 @@ import {
 import { createDrive, updateDrive, type DriveFormState } from "@/app/(app)/drives/actions";
 import { CLUB_CONFIG, COMPASS_RANKS } from "@/lib/constants";
 import { applyDriveTitlePrefix, stripDriveTitlePrefix } from "@/lib/driveTitle";
-import type { DriveDifficulty, DriveStatus } from "@/components/club/DriveBadges";
+import type { DriveStatus } from "@/components/club/DriveBadges";
 
-const DIFFICULTIES: DriveDifficulty[] = [
-  "Easy",
-  "Moderate",
-  "Challenging",
-  "Hard",
-  "Extreme",
-];
 const STATUSES: DriveStatus[] = ["Scheduled", "Completed", "Cancelled"];
 
 const STANDARD_EQUIPMENT: string[] = [
@@ -65,12 +58,13 @@ export type DriveFormValues = {
   id: string;
   drive_id_code: string;
   title: string;
-  difficulty: DriveDifficulty;
   status: DriveStatus;
   drive_date: string;
   location: string;
   meeting_point_name: string | null;
   coordinates: string | null;
+  exit_location: string | null;
+  nearest_petrol_station: string | null;
   map_url: string | null;
   meeting_time: string | null;
   drive_start_time: string | null;
@@ -93,13 +87,14 @@ const CAMP_SCHEDULE_TYPES = ["Before the Drive", "After the Drive"];
 
 type TextFieldsState = {
   title: string;
-  difficulty: string;
   status: string;
   driveDate: string;
   location: string;
   maxDrivers: string;
   meetingPointName: string;
   coordinates: string;
+  exitLocation: string;
+  nearestPetrolStation: string;
   mapUrl: string;
   meetingTime: string;
   driveStartTime: string;
@@ -118,13 +113,14 @@ function buildInitialFields(initialValues?: DriveFormValues): TextFieldsState {
     // "NWB - " / "ROK - " / etc. prefix is applied server-side from the
     // Target Rank, never typed or displayed here.
     title: stripDriveTitlePrefix(initialValues?.title ?? ""),
-    difficulty: initialValues?.difficulty ?? "Easy",
     status: initialValues?.status ?? "Scheduled",
     driveDate: initialValues?.drive_date ?? "",
     location: initialValues?.location ?? "",
     maxDrivers: String(initialValues?.max_drivers ?? 5),
     meetingPointName: initialValues?.meeting_point_name ?? "",
     coordinates: initialValues?.coordinates ?? "",
+    exitLocation: initialValues?.exit_location ?? "",
+    nearestPetrolStation: initialValues?.nearest_petrol_station ?? "",
     mapUrl: initialValues?.map_url ?? "",
     meetingTime: toHHMM(initialValues?.meeting_time),
     driveStartTime: toHHMM(initialValues?.drive_start_time),
@@ -344,25 +340,6 @@ export function DriveForm({
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <SelectField
-            id="difficulty"
-            name="difficulty"
-            label="Difficulty"
-            value={fields.difficulty}
-            onChange={handleFieldChange}
-            options={DIFFICULTIES.map((d) => ({ value: d, label: d }))}
-          />
-          <SelectField
-            id="status"
-            name="status"
-            label="Status"
-            value={fields.status}
-            onChange={handleFieldChange}
-            options={STATUSES.map((s) => ({ value: s, label: s }))}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <TextField
             id="driveDate"
             name="driveDate"
@@ -385,6 +362,14 @@ export function DriveForm({
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <SelectField
+            id="status"
+            name="status"
+            label="Status"
+            value={fields.status}
+            onChange={handleFieldChange}
+            options={STATUSES.map((s) => ({ value: s, label: s }))}
+          />
+          <SelectField
             id="targetRank"
             name="targetRank"
             label="Target Rank"
@@ -395,17 +380,18 @@ export function DriveForm({
               label: r.title,
             }))}
           />
-          <TextField
-            id="maxDrivers"
-            name="maxDrivers"
-            label="Max Driver Slots"
-            type="number"
-            min={1}
-            value={fields.maxDrivers}
-            onChange={handleFieldChange}
-            required
-          />
         </div>
+
+        <TextField
+          id="maxDrivers"
+          name="maxDrivers"
+          label="Max Driver Slots"
+          type="number"
+          min={1}
+          value={fields.maxDrivers}
+          onChange={handleFieldChange}
+          required
+        />
       </div>
 
       <div className="flex flex-col gap-3 border-t border-sand pt-6">
@@ -488,6 +474,24 @@ export function DriveForm({
           value={fields.mapUrl}
           onChange={handleFieldChange}
         />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <TextField
+            id="exitLocation"
+            name="exitLocation"
+            label="Exit location"
+            placeholder="e.g. Same as meeting point"
+            value={fields.exitLocation}
+            onChange={handleFieldChange}
+          />
+          <TextField
+            id="nearestPetrolStation"
+            name="nearestPetrolStation"
+            label="Nearest petrol station"
+            placeholder="e.g. ADNOC Sweihan"
+            value={fields.nearestPetrolStation}
+            onChange={handleFieldChange}
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-4 border-t border-sand pt-6">
