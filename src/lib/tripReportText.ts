@@ -10,13 +10,15 @@
  * strips a report down to nothing). Reports with no such marker — i.e. ones
  * created directly in this app, not scraped — are returned unchanged.
  */
+import { decodeForumHtmlEntities } from "./decodeForumHtmlEntities";
+
 const FORUM_CHROME_PREFIX = /Post by [\s\S]+? on [\s\S]+?GMT\s*[+-]?\d+\s*/;
 
 export function cleanReportText(text: string): string {
   const match = text.match(FORUM_CHROME_PREFIX);
   const body = match ? text.slice((match.index ?? 0) + match[0].length) : text;
 
-  return body
+  return decodeForumHtmlEntities(body)
     .replace(/\t+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

@@ -17,7 +17,7 @@ import { markdownComponents } from "@/components/club/markdownComponents";
 import { CollapsibleSection } from "@/components/club/CollapsibleSection";
 import { formatDate, formatTime } from "@/lib/format";
 import { formatDriveNotes } from "@/lib/driveNotesText";
-import { driveNotesSanitizeSchema } from "@/lib/driveNotesSanitizeSchema";
+import { htmlSanitizeSchema } from "@/lib/htmlSanitizeSchema";
 
 export type RouteLogisticsDrive = {
   meeting_point_name: string | null;
@@ -207,7 +207,7 @@ export function RouteLogisticsTab({ drive }: { drive: RouteLogisticsDrive }) {
           <div className="text-sm text-charcoal-light/90">
             <Markdown
               components={markdownComponents}
-              rehypePlugins={[rehypeRaw, [rehypeSanitize, driveNotesSanitizeSchema]]}
+              rehypePlugins={[rehypeRaw, [rehypeSanitize, htmlSanitizeSchema]]}
             >
               {formatDriveNotes(drive.drive_notes)}
             </Markdown>

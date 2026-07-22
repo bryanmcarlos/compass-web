@@ -10,6 +10,8 @@
  * whitespace insertion, never changes or drops a single non-whitespace
  * character.
  */
+import { decodeForumHtmlEntities } from "./decodeForumHtmlEntities";
+
 const DRIVE_NOTE_LABELS = [
   "Meeting Loc:",
   "Meeting Point:",
@@ -32,31 +34,8 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// The source is raw HTML pasted out of a forum WYSIWYG editor — entities
-// survive the scrape as literal text (e.g. "Rookie &amp; Newbie") rather
-// than the character they represent. rehype-raw (see RouteLogisticsTab)
-// decodes entities that sit *inside* a raw HTML tag it parses, but not
-// ones sitting in plain text between tags, so those still need decoding
-// here. Limited to the entities actually observed in the live data set
-// rather than a general-purpose decoder.
-// &lt; is deliberately not decoded here, even though the others are safe to
-// do before HTML parsing — turning it back into a literal "<" ahead of
-// rehype-raw risks it being misread as the start of a real tag if the
-// following text happens to look like one. It isn't present in the live
-// data set anyway (verified against all 305 rows).
-const HTML_ENTITIES: [RegExp, string][] = [
-  [/&amp;/g, "&"],
-  [/&gt;/g, ">"],
-  [/&nbsp;/g, " "],
-  [/&quot;/g, '"'],
-  [/&#39;/g, "'"],
-];
-
 export function formatDriveNotes(text: string): string {
-  let out = text;
-  for (const [entity, char] of HTML_ENTITIES) {
-    out = out.replace(entity, char);
-  }
+  let out = decodeForumHtmlEntities(text);
   for (const label of DRIVE_NOTE_LABELS) {
     out = out.replace(new RegExp(escapeRegExp(label), "g"), `\n${label}`);
   }

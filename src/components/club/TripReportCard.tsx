@@ -1,5 +1,7 @@
 import Link from "next/link";
 import Markdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { BadgeCheck, HourglassIcon, MapPin, Route } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
@@ -10,6 +12,7 @@ import { LikeButton } from "./LikeButton";
 import { markdownComponents } from "./markdownComponents";
 import { formatDate, formatRelativeTime } from "@/lib/format";
 import { cleanReportText } from "@/lib/tripReportText";
+import { htmlSanitizeSchema } from "@/lib/htmlSanitizeSchema";
 import { toggleTripReportReaction } from "@/app/(app)/trip-reports/actions";
 
 export type TripReportCardData = {
@@ -118,7 +121,12 @@ export function TripReportCard({
       )}
 
       <div className="w-full min-w-0 text-xs text-charcoal sm:text-sm">
-        <Markdown components={markdownComponents}>{cleanReportText(report.report_text)}</Markdown>
+        <Markdown
+          components={markdownComponents}
+          rehypePlugins={[rehypeRaw, [rehypeSanitize, htmlSanitizeSchema]]}
+        >
+          {cleanReportText(report.report_text)}
+        </Markdown>
       </div>
 
       {report.photos && report.photos.length > 0 && (
