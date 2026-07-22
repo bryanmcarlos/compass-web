@@ -30,6 +30,27 @@ export type PickedLocation = {
 const DEFAULT_CENTER = { lat: 24.4539, lng: 54.3773 };
 const MAP_CONTAINER_STYLE = { width: "100%", height: "100%" };
 
+/** google.maps.GeocoderStatus values that mean "your query was fine, the
+ * service just couldn't match it" vs. everything else, which means the
+ * Google Cloud project/key isn't set up to serve this request at all
+ * (Geocoding API not enabled, key's API restrictions exclude it, billing
+ * not enabled, quota exhausted, etc.) — surfacing which one it is turns "no
+ * results for anything I type" from a dead end into an actionable message. */
+function describeGeocoderError(status: google.maps.GeocoderStatus): string {
+  switch (status) {
+    case "ZERO_RESULTS":
+      return "No results found for that search — try a different spelling, or drop a pin on the map instead.";
+    case "REQUEST_DENIED":
+      return "Google denied this request — the Geocoding API is likely not enabled for this project, or the API key's restrictions exclude it.";
+    case "OVER_QUERY_LIMIT":
+      return "Google Maps quota/billing limit reached for this API key.";
+    case "INVALID_REQUEST":
+      return "Invalid search request.";
+    default:
+      return `Search failed (${status}). Check the browser console for details.`;
+  }
+}
+
 export function LocationPickerModal({
   isOpen,
   onClose,
@@ -51,7 +72,7 @@ export function LocationPickerModal({
   const [placeName, setPlaceName] = useState("");
   const [searchValue, setSearchValue] = useState("");
   const [geocoding, setGeocoding] = useState(false);
-  const [searchError, setSearchError] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const mapRef = useRef<google.maps.Map | null>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
@@ -79,7 +100,7 @@ export function LocationPickerModal({
     setPosition(null);
     setPlaceName("");
     setSearchValue("");
-    setSearchError(false);
+    setSearchError(null);
     lastConfirmedQueryRef.current = "";
     onClose();
   }
@@ -126,7 +147,7 @@ export function LocationPickerModal({
     setPosition({ lat, lng });
     setPlaceName(resolvedName);
     setSearchValue(place.name || place.formatted_address || "");
-    setSearchError(false);
+    setSearchError(null);
     lastConfirmedQueryRef.current = place.name || place.formatted_address || "";
     mapRef.current?.panTo({ lat, lng });
     mapRef.current?.setZoom(16);
@@ -148,12 +169,13 @@ export function LocationPickerModal({
         const lng = location.lng();
         setPosition({ lat, lng });
         setPlaceName(results[0].formatted_address);
-        setSearchError(false);
+        setSearchError(null);
         lastConfirmedQueryRef.current = query;
         mapRef.current?.panTo({ lat, lng });
         mapRef.current?.setZoom(16);
       } else {
-        setSearchError(true);
+        console.error("Geocoder search failed:", status, "for query:", query);
+        setSearchError(describeGeocoderError(status));
       }
     });
   }
@@ -243,7 +265,7 @@ export function LocationPickerModal({
                   value={searchValue}
                   onChange={(e) => {
                     setSearchValue(e.target.value);
-                    setSearchError(false);
+                    setSearchError(null);
                   }}
                   onKeyDown={handleSearchKeyDown}
                   placeholder="Search for a place…"
@@ -252,10 +274,9 @@ export function LocationPickerModal({
               </div>
             </Autocomplete>
             {searchError && (
-              <p className="flex items-center gap-1.5 text-xs text-error">
-                <CircleAlert className="h-3.5 w-3.5 shrink-0" />
-                No results found for that search — try a different spelling, or drop a pin on the
-                map instead.
+              <p className="flex items-start gap-1.5 text-xs text-error">
+                <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {searchError}
               </p>
             )}
 
