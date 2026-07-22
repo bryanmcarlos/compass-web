@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   GoogleMap,
   Marker,
@@ -51,10 +51,17 @@ export function LocationPickerModal({
   const [placeName, setPlaceName] = useState("");
   const [searchValue, setSearchValue] = useState("");
   const [geocoding, setGeocoding] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
   const mapRef = useRef<google.maps.Map | null>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
+  // The query text a Places dropdown selection last resolved — lets Enter
+  // skip re-geocoding when the box already reflects a confirmed pick (e.g.
+  // Google's own widget already selected an arrow-key-highlighted
+  // suggestion), while still firing for a typed query that was never
+  // clicked/highlighted.
+  const lastConfirmedQueryRef = useRef<string>("");
 
   useEffect(() => {
     if (isOpen) {
@@ -72,6 +79,8 @@ export function LocationPickerModal({
     setPosition(null);
     setPlaceName("");
     setSearchValue("");
+    setSearchError(false);
+    lastConfirmedQueryRef.current = "";
     onClose();
   }
 
@@ -113,11 +122,55 @@ export function LocationPickerModal({
     if (!place?.geometry?.location) return;
     const lat = place.geometry.location.lat();
     const lng = place.geometry.location.lng();
+    const resolvedName = place.name || place.formatted_address || formatCoordinates(lat, lng);
     setPosition({ lat, lng });
-    setPlaceName(place.name || place.formatted_address || formatCoordinates(lat, lng));
+    setPlaceName(resolvedName);
     setSearchValue(place.name || place.formatted_address || "");
+    setSearchError(false);
+    lastConfirmedQueryRef.current = place.name || place.formatted_address || "";
     mapRef.current?.panTo({ lat, lng });
     mapRef.current?.setZoom(16);
+  }
+
+  /** Resolves free-typed text to a location without requiring a dropdown
+   * click — the Enter-key fallback below, and effectively "select the top
+   * prediction" since the Geocoding API returns its best match first. */
+  function geocodeQuery(query: string) {
+    if (!geocoderRef.current) {
+      geocoderRef.current = new google.maps.Geocoder();
+    }
+    setGeocoding(true);
+    geocoderRef.current.geocode({ address: query }, (results, status) => {
+      setGeocoding(false);
+      if (status === "OK" && results?.[0]) {
+        const location = results[0].geometry.location;
+        const lat = location.lat();
+        const lng = location.lng();
+        setPosition({ lat, lng });
+        setPlaceName(results[0].formatted_address);
+        setSearchError(false);
+        lastConfirmedQueryRef.current = query;
+        mapRef.current?.panTo({ lat, lng });
+        mapRef.current?.setZoom(16);
+      } else {
+        setSearchError(true);
+      }
+    });
+  }
+
+  // Enter always intercepts default form submission first — this input sits
+  // inside the outer "Post a Drive" <form>, so without this an Enter press
+  // here would implicitly submit that form. Google's own Autocomplete widget
+  // still gets a chance to handle Enter for an arrow-key-highlighted
+  // suggestion (it listens on the same input independently of this handler),
+  // which is why the fallback below only geocodes when the box's text isn't
+  // already a confirmed selection — avoids a redundant/racy second lookup.
+  function handleSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const query = e.currentTarget.value.trim();
+    if (!query || query === lastConfirmedQueryRef.current) return;
+    geocodeQuery(query);
   }
 
   function handleConfirm() {
@@ -188,12 +241,23 @@ export function LocationPickerModal({
                 <input
                   type="text"
                   value={searchValue}
-                  onChange={(e) => setSearchValue(e.target.value)}
+                  onChange={(e) => {
+                    setSearchValue(e.target.value);
+                    setSearchError(false);
+                  }}
+                  onKeyDown={handleSearchKeyDown}
                   placeholder="Search for a place…"
                   className="w-full rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-sm text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
                 />
               </div>
             </Autocomplete>
+            {searchError && (
+              <p className="flex items-center gap-1.5 text-xs text-error">
+                <CircleAlert className="h-3.5 w-3.5 shrink-0" />
+                No results found for that search — try a different spelling, or drop a pin on the
+                map instead.
+              </p>
+            )}
 
             <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-sand">
               <GoogleMap
@@ -219,6 +283,11 @@ export function LocationPickerModal({
                     {" — "}
                     {formatCoordinates(position.lat, position.lng)}
                   </span>
+                </>
+              ) : geocoding ? (
+                <>
+                  <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-forest" />
+                  <span>Searching…</span>
                 </>
               ) : (
                 <span>Search above, or click/tap the map to drop a pin — drag it to fine-tune.</span>
