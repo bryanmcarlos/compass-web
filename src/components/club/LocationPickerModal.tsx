@@ -287,7 +287,23 @@ export function LocationPickerModal({
                 zoom={position ? 16 : 9}
                 onLoad={handleMapLoad}
                 onClick={handleMapClick}
-                options={{ streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
+                options={{
+                  streetViewControl: false,
+                  fullscreenControl: false,
+                  // "auto" (the default) falls back to cooperative gesture
+                  // handling inside a normal scrolling page — single-finger
+                  // drag/scroll-wheel do nothing until Ctrl is held, so it
+                  // doesn't fight the page's own scroll. This map only ever
+                  // lives inside a dedicated modal, not a longer page, so it
+                  // should behave like maps.google.com directly instead.
+                  gestureHandling: "greedy",
+                  zoomControl: true,
+                  mapTypeControl: true,
+                  mapTypeControlOptions: {
+                    style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
+                    mapTypeIds: ["roadmap", "satellite", "hybrid", "terrain"],
+                  },
+                }}
               >
                 {position && (
                   <Marker position={position} draggable onDragEnd={handleMarkerDragEnd} />
