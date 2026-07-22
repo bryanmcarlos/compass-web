@@ -22,17 +22,21 @@ export type ThreadDrive = {
  * it. `leadReport` is null far more often than not (verified against live
  * data: only ~6% of drives with reports have one authored by their
  * registered Lead) — this never assumes one exists. */
+export type ReactionSummary = { count: number; liked: boolean };
+
 export function DriveThread({
   drive,
   leadReport,
   otherReports,
   commentsByReport,
+  reactionsByReport,
   canDelete,
 }: {
   drive: ThreadDrive;
   leadReport: ThreadReport | null;
   otherReports: ThreadReport[];
   commentsByReport: Map<string, CommentData[]>;
+  reactionsByReport: Map<string, ReactionSummary>;
   canDelete: boolean;
 }) {
   return (
@@ -64,7 +68,14 @@ export function DriveThread({
             <Award className="h-3.5 w-3.5 shrink-0" />
             Lead Summary
           </span>
-          <TripReportCard report={leadReport} linkToDetail showDriveContext={false} canDelete={canDelete} />
+          <TripReportCard
+            report={leadReport}
+            linkToDetail
+            showDriveContext={false}
+            canDelete={canDelete}
+            likeCount={reactionsByReport.get(leadReport.id)?.count ?? 0}
+            viewerLiked={reactionsByReport.get(leadReport.id)?.liked ?? false}
+          />
           <CommentThread reportId={leadReport.id} comments={commentsByReport.get(leadReport.id) ?? []} />
         </div>
       )}
@@ -80,7 +91,14 @@ export function DriveThread({
             key={report.id}
             className={`flex flex-col gap-2 ${isFirstContentBlock ? "" : "border-t border-sand pt-4"}`}
           >
-            <TripReportCard report={report} linkToDetail showDriveContext={false} canDelete={canDelete} />
+            <TripReportCard
+              report={report}
+              linkToDetail
+              showDriveContext={false}
+              canDelete={canDelete}
+              likeCount={reactionsByReport.get(report.id)?.count ?? 0}
+              viewerLiked={reactionsByReport.get(report.id)?.liked ?? false}
+            />
             <CommentThread reportId={report.id} comments={commentsByReport.get(report.id) ?? []} />
           </div>
         );

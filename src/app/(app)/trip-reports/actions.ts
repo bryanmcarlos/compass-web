@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { validateImageFile } from "@/lib/imageUpload";
 import { cloudinaryConfigured, uploadBufferToCloudinary } from "@/lib/cloudinary";
+import type { ToggleReactionState } from "@/components/club/LikeButton";
 
 export type SubmitReportState = {
   status: "idle" | "error" | "success";
@@ -655,4 +656,43 @@ export async function submitComment(
   revalidatePath("/trip-reports");
 
   return { status: "success", message: "Comment posted." };
+}
+
+export async function toggleTripReportReaction(reportId: string): Promise<ToggleReactionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", liked: false, message: "You need to be signed in to like this." };
+  }
+
+  const { data: existing } = await supabase
+    .from("report_reactions")
+    .select("id")
+    .eq("trip_report_id", reportId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase.from("report_reactions").delete().eq("id", existing.id);
+    if (error) {
+      console.error("SERVER ACTION ERROR [toggleTripReportReaction]:", error);
+      return { status: "error", liked: true, message: "Couldn't unlike this. Please try again." };
+    }
+    revalidatePath("/trip-reports");
+    return { status: "success", liked: false };
+  }
+
+  const { error } = await supabase
+    .from("report_reactions")
+    .insert({ trip_report_id: reportId, user_id: user.id, reaction_type: "like" });
+  if (error) {
+    console.error("SERVER ACTION ERROR [toggleTripReportReaction]:", error);
+    return { status: "error", liked: false, message: "Couldn't like this. Please try again." };
+  }
+  revalidatePath("/trip-reports");
+  return { status: "success", liked: true };
 }

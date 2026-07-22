@@ -14,7 +14,7 @@ import type { TripReportCardData } from "@/components/club/TripReportCard";
 import type { PendingReport } from "@/components/club/PendingReportsReview";
 import { CLUB_CONFIG } from "@/lib/constants";
 import { formatDate } from "@/lib/format";
-import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
+import { getAvailableRoles, countsAsDriverSlot, type RegistrationRole } from "@/lib/driveRoles";
 import { checkMemberEligibleForDrive } from "./actions";
 import { getAppSettings } from "@/lib/appSettings";
 import type { DriveStatus } from "@/components/club/DriveBadges";
@@ -184,6 +184,23 @@ export default async function DriveDetailPage({
   const supports = allRegistrants.filter((r) => r.role === "Support");
   const drivers = allRegistrants.filter((r) => r.role === "Driver");
 
+  // The "active driver slot" figure shown on Convoy Status and the roster's
+  // Drivers header — Drivers plus non-Marshal Support registrants, since an
+  // Advanced member Supporting a drive still occupies a driver-equivalent
+  // seat while a Marshal Supporting doesn't. Distinct from `drivers` above,
+  // which stays Driver-role-only because that's what the rank-grouped
+  // sections actually list.
+  const driverSlotCount = allRegistrants.filter((r) =>
+    countsAsDriverSlot(r.role, r.driver_rank, r.user?.current_rank ?? 0),
+  ).length;
+
+  const { data: driveReactionRows } = await supabase
+    .from("drive_reactions")
+    .select("user_id")
+    .eq("drive_id", id);
+  const driveLikeCount = driveReactionRows?.length ?? 0;
+  const driveViewerLiked = Boolean(user && driveReactionRows?.some((r) => r.user_id === user.id));
+
   // Only approved reports — same rule as the public feed. An unapproved
   // report about this drive isn't hidden from the world, it's just not
   // shown here yet either; its author can already see it from their own
@@ -320,6 +337,7 @@ export default async function DriveDetailPage({
       )}
 
       <DriveHero
+        driveId={drive.id}
         driveIdCode={drive.drive_id_code}
         title={drive.title}
         status={drive.status}
@@ -331,8 +349,10 @@ export default async function DriveDetailPage({
         meetingPointName={drive.meeting_point_name}
         mapUrl={drive.map_url}
         leadMarshal={drive.lead_marshal}
-        registeredDrivers={drivers.length}
+        registeredDrivers={driverSlotCount}
         maxDrivers={drive.max_drivers}
+        likeCount={driveLikeCount}
+        viewerLiked={driveViewerLiked}
       />
 
       <Tabs tabs={DETAIL_TABS} defaultKey="route" />
@@ -345,6 +365,7 @@ export default async function DriveDetailPage({
           supports={supports}
           drivers={drivers}
           slotCount={slotCount}
+          driverSlotCount={driverSlotCount}
           isSuperUser={isSuperUser}
           driveId={drive.id}
           driveTitle={drive.title}

@@ -10,6 +10,7 @@ import {
   ScrollText,
   Fuel,
   DoorOpen,
+  ChevronDown,
 } from "lucide-react";
 import { markdownComponents } from "@/components/club/markdownComponents";
 import { formatDate, formatTime } from "@/lib/format";
@@ -195,17 +196,18 @@ export function RouteLogisticsTab({ drive }: { drive: RouteLogisticsDrive }) {
       )}
 
       {drive.drive_notes && (
-        <section className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm sm:p-6">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
+        <details open className="group rounded-2xl border border-sand bg-off-white p-5 shadow-sm sm:p-6">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-charcoal marker:content-none">
             <ScrollText className="h-4 w-4 text-forest" />
-            Route Notes
-          </h2>
-          <div className="text-sm text-charcoal-light/90">
+            Drive Notes
+            <ChevronDown className="ml-auto h-4 w-4 text-charcoal-light/50 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-3 text-sm text-charcoal-light/90">
             <Markdown components={markdownComponents}>
               {formatDriveNotes(drive.drive_notes)}
             </Markdown>
           </div>
-        </section>
+        </details>
       )}
     </div>
   );

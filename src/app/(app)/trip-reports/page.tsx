@@ -4,7 +4,7 @@ import { createClient } from "@/utils/supabase/server";
 import { EmptyState, ErrorState } from "@/components/club/StateMessage";
 import { Tabs } from "@/components/club/Tabs";
 import { Pagination } from "@/components/club/Pagination";
-import { DriveThread, type ThreadReport, type ThreadDrive } from "@/components/club/DriveThread";
+import { DriveThread, type ThreadReport, type ThreadDrive, type ReactionSummary } from "@/components/club/DriveThread";
 import { PendingReportsReview, type PendingReport } from "@/components/club/PendingReportsReview";
 import { TripReportCard } from "@/components/club/TripReportCard";
 import { CommentThread, type CommentData } from "@/components/club/CommentThread";
@@ -41,6 +41,33 @@ async function fetchCommentsByReport(
     const list = map.get(comment.trip_report_id) ?? [];
     list.push(comment);
     map.set(comment.trip_report_id, list);
+  }
+  return map;
+}
+
+/** Same batching rationale as fetchCommentsByReport — one query for every
+ * report on the page rather than one per card. `viewerId` is null for a
+ * signed-out visitor, in which case every report is simply un-liked from
+ * their perspective (no row could exist for a null user_id). */
+async function fetchReactionsByReport(
+  supabase: SupabaseServerClient,
+  reportIds: string[],
+  viewerId: string | null,
+): Promise<Map<string, ReactionSummary>> {
+  if (reportIds.length === 0) return new Map();
+
+  const { data } = await supabase
+    .from("report_reactions")
+    .select("trip_report_id, user_id")
+    .in("trip_report_id", reportIds)
+    .overrideTypes<{ trip_report_id: string; user_id: string }[], { merge: false }>();
+
+  const map = new Map<string, ReactionSummary>();
+  for (const row of data ?? []) {
+    const summary = map.get(row.trip_report_id) ?? { count: 0, liked: false };
+    summary.count += 1;
+    if (viewerId && row.user_id === viewerId) summary.liked = true;
+    map.set(row.trip_report_id, summary);
   }
   return map;
 }
@@ -104,6 +131,7 @@ export default async function TripReportsPage({
   let threads: DriveThreadData[] = [];
   let generalReports: ThreadReport[] = [];
   let commentsByReport = new Map<string, CommentData[]>();
+  let reactionsByReport = new Map<string, ReactionSummary>();
   let page = 1;
   let totalPages = 1;
   let pendingReports: PendingReport[] = [];
@@ -232,7 +260,10 @@ export default async function TripReportsPage({
         allReportIds.push(...generalReports.map((r) => r.id));
       }
 
-      commentsByReport = await fetchCommentsByReport(supabase, allReportIds);
+      [commentsByReport, reactionsByReport] = await Promise.all([
+        fetchCommentsByReport(supabase, allReportIds),
+        fetchReactionsByReport(supabase, allReportIds, user?.id ?? null),
+      ]);
     }
   }
 
@@ -292,6 +323,7 @@ export default async function TripReportsPage({
               leadReport={thread.leadReport}
               otherReports={thread.otherReports}
               commentsByReport={commentsByReport}
+              reactionsByReport={reactionsByReport}
               canDelete={isAdmin}
             />
           ))}
@@ -304,7 +336,14 @@ export default async function TripReportsPage({
                   key={report.id}
                   className={`flex flex-col gap-2 ${index === 0 ? "" : "border-t border-sand pt-4"}`}
                 >
-                  <TripReportCard report={report} linkToDetail showDriveContext={false} canDelete={isAdmin} />
+                  <TripReportCard
+                    report={report}
+                    linkToDetail
+                    showDriveContext={false}
+                    canDelete={isAdmin}
+                    likeCount={reactionsByReport.get(report.id)?.count ?? 0}
+                    viewerLiked={reactionsByReport.get(report.id)?.liked ?? false}
+                  />
                   <CommentThread reportId={report.id} comments={commentsByReport.get(report.id) ?? []} />
                 </div>
               ))}

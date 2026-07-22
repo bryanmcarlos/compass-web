@@ -7,6 +7,7 @@ import { createClient } from "@/utils/supabase/server";
 import { COMPASS_RANKS } from "@/lib/constants";
 import { applyDriveTitlePrefix } from "@/lib/driveTitle";
 import { validateImageFile } from "@/lib/imageUpload";
+import type { ToggleReactionState } from "@/components/club/LikeButton";
 
 export type DriveFormState = {
   status: "idle" | "error" | "success";
@@ -487,4 +488,107 @@ export async function updateDrive(
           : "Couldn't save these changes. Please try again.",
     };
   }
+}
+
+export type DeleteDriveState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+};
+
+/** Admin-only, and refuses to touch a drive with any real history attached
+ * — a swipe gesture is not the place to silently cascade-delete
+ * registrations or trip reports. Meant for cleaning up an accidentally
+ * created or duplicate drive, not retiring one people actually showed up
+ * to. */
+export async function deleteDrive(driveId: string): Promise<DeleteDriveState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", message: "You need to be signed in to delete a drive." };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", user.id)
+    .single();
+
+  if (!profile?.is_admin) {
+    return { status: "error", message: "Only Admins can delete a drive." };
+  }
+
+  const [{ count: registrationCount }, { count: reportCount }] = await Promise.all([
+    supabase
+      .from("drive_registrations")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_id", driveId),
+    supabase
+      .from("trip_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_id", driveId),
+  ]);
+
+  if ((registrationCount ?? 0) > 0 || (reportCount ?? 0) > 0) {
+    return {
+      status: "error",
+      message:
+        "This drive has registrations or trip reports attached — it can't be deleted. Cancel it instead if it's no longer happening.",
+    };
+  }
+
+  const { error } = await supabase.from("drives").delete().eq("id", driveId);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [deleteDrive]:", error);
+    return { status: "error", message: "Couldn't delete this drive. Please try again." };
+  }
+
+  revalidatePath("/drives");
+
+  return { status: "success", message: "Drive deleted." };
+}
+
+export async function toggleDriveReaction(driveId: string): Promise<ToggleReactionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", liked: false, message: "You need to be signed in to like this." };
+  }
+
+  const { data: existing } = await supabase
+    .from("drive_reactions")
+    .select("id")
+    .eq("drive_id", driveId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase.from("drive_reactions").delete().eq("id", existing.id);
+    if (error) {
+      console.error("SERVER ACTION ERROR [toggleDriveReaction]:", error);
+      return { status: "error", liked: true, message: "Couldn't unlike this. Please try again." };
+    }
+    revalidatePath("/drives");
+    revalidatePath(`/drives/${driveId}`);
+    return { status: "success", liked: false };
+  }
+
+  const { error } = await supabase
+    .from("drive_reactions")
+    .insert({ drive_id: driveId, user_id: user.id, reaction_type: "like" });
+  if (error) {
+    console.error("SERVER ACTION ERROR [toggleDriveReaction]:", error);
+    return { status: "error", liked: false, message: "Couldn't like this. Please try again." };
+  }
+  revalidatePath("/drives");
+  revalidatePath(`/drives/${driveId}`);
+  return { status: "success", liked: true };
 }

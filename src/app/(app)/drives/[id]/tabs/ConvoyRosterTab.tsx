@@ -1,6 +1,6 @@
 import { Users, CircleDashed, Tent, MessageCircle, UserPlus } from "lucide-react";
 import { Avatar } from "@/components/club/Avatar";
-import { RankBadge } from "@/components/club/RankBadge";
+import { HoldToRevealRankBadge } from "@/components/club/HoldToRevealRankBadge";
 import { AssignDriverSlotModal } from "@/components/club/AssignDriverSlotModal";
 import { CLUB_CONFIG, rankNameFromLevel, type RankName } from "@/lib/constants";
 import type { RegistrationRole } from "@/lib/driveRoles";
@@ -132,8 +132,9 @@ function RegistrationRow({
         </span>
       )}
       {user && (
-        <RankBadge
-          rank={rankNameFromLevel(user.current_rank)}
+        <HoldToRevealRankBadge
+          historicalRank={registration.driver_rank as RankName | null}
+          liveRank={rankNameFromLevel(user.current_rank)}
           className="ml-auto shrink-0 text-[11px]"
           size="xs"
         />
@@ -227,6 +228,7 @@ export function ConvoyRosterTab({
   supports,
   drivers,
   slotCount,
+  driverSlotCount,
   isSuperUser,
   driveId,
   driveTitle,
@@ -241,6 +243,11 @@ export function ConvoyRosterTab({
   supports: Registration[];
   drivers: Registration[];
   slotCount: number;
+  /** Drivers plus non-Marshal Support registrants — the same figure shown
+   * as Convoy Status on DriveHero, so this header doesn't disagree with it.
+   * Distinct from `drivers.length`, which stays Driver-role-only since
+   * that's still what the rank-grouped sections below actually list. */
+  driverSlotCount: number;
   isSuperUser: boolean;
   driveId: string;
   driveTitle: string;
@@ -288,7 +295,7 @@ export function ConvoyRosterTab({
       {leads.length > 0 && (
         <div className="flex flex-col gap-2">
           <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
-            👑 Lead Marshals ({leads.length})
+            👑 Lead ({leads.length})
           </h3>
           <ul className="flex flex-col gap-2">
             {leads.map((r) => (
@@ -301,7 +308,7 @@ export function ConvoyRosterTab({
       {supports.length > 0 && (
         <div className="flex flex-col gap-2">
           <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
-            🛡️ Support Marshals ({supports.length})
+            🛡️ Support ({supports.length})
           </h3>
           <ul className="flex flex-col gap-2">
             {supports.map((r) => (
@@ -313,7 +320,7 @@ export function ConvoyRosterTab({
 
       <div className="flex flex-col gap-3">
         <h3 className="text-xs font-semibold tracking-wide text-charcoal-light/70 uppercase">
-          Drivers ({drivers.length}/{maxDrivers})
+          Drivers ({driverSlotCount}/{maxDrivers})
         </h3>
 
         {DRIVER_RANK_GROUPS.map(({ key, label, emoji }) => {

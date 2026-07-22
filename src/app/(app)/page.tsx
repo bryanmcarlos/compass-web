@@ -1,8 +1,11 @@
 import type { ComponentType } from "react";
-import { Compass, Layers, Users, Route, FileText, ShieldCheck } from "lucide-react";
+import { Compass, Layers, Users, Route, FileText, ShieldCheck, Megaphone } from "lucide-react";
 import { Logo } from "@/components/club/Logo";
+import { LikeButton } from "@/components/club/LikeButton";
 import { createClient } from "@/utils/supabase/server";
 import { CLUB_CONFIG, type RankLevel } from "@/lib/constants";
+import { formatRelativeTime } from "@/lib/format";
+import { toggleAnnouncementReaction } from "./announcements/actions";
 
 type RankTier = RankLevel & { members: number };
 
@@ -49,8 +52,82 @@ async function getClubDashboardData(): Promise<ClubDashboardData> {
   };
 }
 
+type AnnouncementRow = {
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  published_at: string;
+  likeCount: number;
+  viewerLiked: boolean;
+};
+
+/** A minimal first pass at surfacing announcements at all — nothing has
+ * ever rendered this table before (it's only ever been written to, by the
+ * promotion-celebration features). Filtered to the viewer's own rank or
+ * below, same target_rank convention the rest of the app uses. */
+async function getRecentAnnouncements(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  viewerRank: number,
+  viewerId: string | null,
+): Promise<AnnouncementRow[]> {
+  const { data: announcements } = await supabase
+    .from("announcements")
+    .select("id, title, content, category, target_rank, published_at")
+    .lte("target_rank", viewerRank)
+    .order("published_at", { ascending: false })
+    .limit(5);
+
+  const rows = announcements ?? [];
+  if (rows.length === 0) return [];
+
+  const { data: reactionRows } = await supabase
+    .from("announcement_reactions")
+    .select("announcement_id, user_id")
+    .in(
+      "announcement_id",
+      rows.map((r) => r.id),
+    );
+
+  const summaryByAnnouncement = new Map<string, { count: number; liked: boolean }>();
+  for (const row of reactionRows ?? []) {
+    const summary = summaryByAnnouncement.get(row.announcement_id) ?? { count: 0, liked: false };
+    summary.count += 1;
+    if (viewerId && row.user_id === viewerId) summary.liked = true;
+    summaryByAnnouncement.set(row.announcement_id, summary);
+  }
+
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    content: r.content,
+    category: r.category,
+    published_at: r.published_at,
+    likeCount: summaryByAnnouncement.get(r.id)?.count ?? 0,
+    viewerLiked: summaryByAnnouncement.get(r.id)?.liked ?? false,
+  }));
+}
+
 export default async function Home() {
-  const data = await getClubDashboardData();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let viewerRank = 0;
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("current_rank")
+      .eq("id", user.id)
+      .single();
+    viewerRank = profile?.current_rank ?? 0;
+  }
+
+  const [data, announcements] = await Promise.all([
+    getClubDashboardData(),
+    getRecentAnnouncements(supabase, viewerRank, user?.id ?? null),
+  ]);
   const maxTierMembers = Math.max(...data.tiers.map((t) => t.members), 1);
 
   const [seniorRank, secondSeniorRank] = [...CLUB_CONFIG.ranks].sort(
@@ -138,6 +215,49 @@ export default async function Home() {
           })}
         </ul>
       </section>
+
+      {announcements.length > 0 && (
+        <section className="rounded-2xl border border-sand bg-off-white p-6 shadow-sm sm:p-8">
+          <header className="mb-6 flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sand-light text-forest">
+              <Megaphone className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold text-charcoal">Recent Announcements</h2>
+              <p className="text-sm text-charcoal-light/80">
+                Promotions and club-wide news
+              </p>
+            </div>
+          </header>
+
+          <ul className="flex flex-col gap-4">
+            {announcements.map((a, index) => (
+              <li
+                key={a.id}
+                className={`flex flex-col gap-2 ${index === 0 ? "" : "border-t border-sand pt-4"}`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-forest/10 px-2 py-0.5 text-[10px] font-semibold text-forest uppercase">
+                    {a.category}
+                  </span>
+                  <span className="text-xs text-charcoal-light/60">
+                    {formatRelativeTime(a.published_at)}
+                  </span>
+                </div>
+                <h3 className="text-sm font-semibold text-charcoal">{a.title}</h3>
+                <p className="text-sm break-words text-charcoal-light/90">{a.content}</p>
+                <div>
+                  <LikeButton
+                    initialLiked={a.viewerLiked}
+                    initialCount={a.likeCount}
+                    toggleAction={() => toggleAnnouncementReaction(a.id)}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile

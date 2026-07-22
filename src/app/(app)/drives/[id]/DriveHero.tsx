@@ -1,10 +1,13 @@
 import { Calendar, Clock, MapPin, ExternalLink, Users } from "lucide-react";
 import { StatusIndicator, type DriveStatus } from "@/components/club/DriveBadges";
 import { RankBadge } from "@/components/club/RankBadge";
+import { LikeButton } from "@/components/club/LikeButton";
 import { rankNameFromLevel } from "@/lib/constants";
 import { formatDate, formatTime, formatConvoyStatus } from "@/lib/format";
+import { toggleDriveReaction } from "../actions";
 
 export function DriveHero({
+  driveId,
   driveIdCode,
   title,
   status,
@@ -18,7 +21,10 @@ export function DriveHero({
   leadMarshal,
   registeredDrivers,
   maxDrivers,
+  likeCount,
+  viewerLiked,
 }: {
+  driveId: string;
   driveIdCode: string;
   title: string;
   status: DriveStatus;
@@ -32,6 +38,8 @@ export function DriveHero({
   leadMarshal: { username: string; full_name: string | null; current_rank: number } | null;
   registeredDrivers: number;
   maxDrivers: number;
+  likeCount: number;
+  viewerLiked: boolean;
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-sand bg-off-white shadow-sm">
@@ -62,10 +70,17 @@ export function DriveHero({
           <h1 className="text-xl font-bold text-off-white drop-shadow-sm sm:text-2xl">
             {title}
           </h1>
-          <StatusIndicator
-            status={status}
-            className="w-fit rounded-full bg-charcoal/40 px-2 py-0.5 text-xs font-medium backdrop-blur-sm"
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusIndicator
+              status={status}
+              className="w-fit rounded-full bg-charcoal/40 px-2 py-0.5 text-xs font-medium backdrop-blur-sm"
+            />
+            <LikeButton
+              initialLiked={viewerLiked}
+              initialCount={likeCount}
+              toggleAction={() => toggleDriveReaction(driveId)}
+            />
+          </div>
         </div>
       </div>
 
@@ -122,9 +137,7 @@ export function DriveHero({
         </div>
 
         <div className="flex items-center gap-2 rounded-xl bg-sand-light/60 px-3 py-2.5">
-          <span className="text-lg" aria-hidden="true">
-            👥
-          </span>
+          <Users className="h-5 w-5 shrink-0 text-charcoal-light/60" />
           <span className="min-w-0 text-sm">
             <span className="block text-xs text-charcoal-light/60">Convoy Status</span>
             <span className="block truncate font-medium text-charcoal">

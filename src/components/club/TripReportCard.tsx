@@ -6,9 +6,11 @@ import { RankBadge } from "./RankBadge";
 import { rankNameFromLevel } from "@/lib/constants";
 import { DeleteReportButton } from "./DeleteReportButton";
 import { PhotoGallery } from "./PhotoGallery";
+import { LikeButton } from "./LikeButton";
 import { markdownComponents } from "./markdownComponents";
 import { formatDate, formatRelativeTime } from "@/lib/format";
 import { cleanReportText } from "@/lib/tripReportText";
+import { toggleTripReportReaction } from "@/app/(app)/trip-reports/actions";
 
 export type TripReportCardData = {
   id: string;
@@ -40,6 +42,8 @@ export function TripReportCard({
   showDriveContext = true,
   canDelete = false,
   deleteRedirectTo,
+  likeCount = 0,
+  viewerLiked = false,
 }: {
   report: TripReportCardData;
   linkToDetail?: boolean;
@@ -51,6 +55,11 @@ export function TripReportCard({
   /** See DeleteReportButton — only needed when this card is rendered on the
    * report's own detail page. */
   deleteRedirectTo?: string;
+  /** Callers batch-fetch report_reactions the same way they already do for
+   * comments — defaults to 0/false rather than a required prop so this
+   * doesn't ripple into every call site that hasn't been touched. */
+  likeCount?: number;
+  viewerLiked?: boolean;
 }) {
   const authorName = report.author?.full_name ?? report.author?.username ?? "A club member";
 
@@ -70,6 +79,11 @@ export function TripReportCard({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          <LikeButton
+            initialLiked={viewerLiked}
+            initialCount={likeCount}
+            toggleAction={() => toggleTripReportReaction(report.id)}
+          />
           {report.is_approved ? (
             <span className="flex items-center gap-1 rounded-full bg-forest/10 px-1.5 py-0.5 text-[10px] font-semibold text-forest">
               <BadgeCheck className="h-3.5 w-3.5" />

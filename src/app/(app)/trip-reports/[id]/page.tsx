@@ -72,6 +72,13 @@ export default async function TripReportDetailPage({
     notFound();
   }
 
+  const { data: reactionRows } = await supabase
+    .from("report_reactions")
+    .select("user_id")
+    .eq("trip_report_id", id);
+  const likeCount = reactionRows?.length ?? 0;
+  const viewerLiked = Boolean(user && reactionRows?.some((r) => r.user_id === user.id));
+
   let pastDrives: PastDrive[] = [];
   if (isAuthorOrAdmin) {
     const { data: drivesData } = await supabase
@@ -110,7 +117,13 @@ export default async function TripReportDetailPage({
         <h1 className="text-xl font-bold tracking-tight text-charcoal">Trip Report</h1>
       </header>
 
-      <TripReportCard report={report} canDelete={isAdmin} deleteRedirectTo="/trip-reports" />
+      <TripReportCard
+        report={report}
+        canDelete={isAdmin}
+        deleteRedirectTo="/trip-reports"
+        likeCount={likeCount}
+        viewerLiked={viewerLiked}
+      />
 
       {user?.id === report.author_id && (
         <Link

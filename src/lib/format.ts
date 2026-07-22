@@ -3,7 +3,7 @@
  * registrations only — matches the existing "Drivers (X/Y)" roster header;
  * Lead/Support registrants are never counted toward X or Y. */
 export function formatConvoyStatus(registeredDrivers: number, maxDrivers: number): string {
-  return `👥 ${registeredDrivers} / ${maxDrivers} Drivers Registered`;
+  return `${registeredDrivers} / ${maxDrivers} Drivers Registered`;
 }
 
 /** "3 hours ago" / "in 2 days" style formatting for an ISO timestamp —

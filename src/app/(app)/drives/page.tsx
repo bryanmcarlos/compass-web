@@ -5,8 +5,10 @@ import { EmptyState, ErrorState } from "@/components/club/StateMessage";
 import { RankBadge } from "@/components/club/RankBadge";
 import { Tabs } from "@/components/club/Tabs";
 import { ArchiveDriveList, type ArchiveDrive } from "./ArchiveDriveList";
+import { SwipeToDeleteRow } from "@/components/club/SwipeToDeleteRow";
 import { formatDate, formatTime, formatConvoyStatus } from "@/lib/format";
 import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
+import { countsAsDriverSlot } from "@/lib/driveRoles";
 
 const DRIVES_TABS = [
   { key: "upcoming", label: "Upcoming Runs" },
@@ -47,7 +49,9 @@ type CompletedDrive = {
 
 /** Batches a single `.in("drive_id", ids)` count query instead of one query
  * per card — cheap regardless of tab size, and avoids an N+1 query pattern
- * for what's otherwise a handful of drives per tab. */
+ * for what's otherwise a handful of drives per tab. Counts Drivers plus
+ * non-Marshal Support registrants (see countsAsDriverSlot) — matches the
+ * same "active driver slot" figure shown on a drive's own detail page. */
 async function driverCountsByDrive(
   supabase: Awaited<ReturnType<typeof createClient>>,
   driveIds: string[],
@@ -55,12 +59,17 @@ async function driverCountsByDrive(
   if (driveIds.length === 0) return new Map();
   const { data } = await supabase
     .from("drive_registrations")
-    .select("drive_id")
-    .eq("role", "Driver")
-    .in("drive_id", driveIds);
+    .select("drive_id, role, driver_rank, user:profiles(current_rank)")
+    .in("role", ["Driver", "Support"])
+    .in("drive_id", driveIds)
+    .overrideTypes<
+      { drive_id: string; role: "Driver" | "Support"; driver_rank: string | null; user: { current_rank: number } | null }[],
+      { merge: false }
+    >();
 
   const counts = new Map<string, number>();
   for (const row of data ?? []) {
+    if (!countsAsDriverSlot(row.role, row.driver_rank, row.user?.current_rank ?? 0)) continue;
     counts.set(row.drive_id, (counts.get(row.drive_id) ?? 0) + 1);
   }
   return counts;
@@ -228,14 +237,16 @@ export default async function DrivesPage({
 
   let userRank: number | null = null;
   let isMarshal = false;
+  let isSuperUser = false;
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("current_rank, is_marshal")
+      .select("current_rank, is_marshal, is_admin")
       .eq("id", user.id)
       .single();
     userRank = profile?.current_rank ?? null;
     isMarshal = profile?.is_marshal ?? false;
+    isSuperUser = profile?.is_admin ?? false;
   }
 
   // Always run (cheap, count-only) so tab labels are correct before ever
@@ -362,12 +373,18 @@ export default async function DrivesPage({
         ) : (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {upcomingDrives.map((drive) => (
-              <UpcomingCard
+              <SwipeToDeleteRow
                 key={drive.id}
-                drive={drive}
-                userRank={userRank}
-                registeredDrivers={upcomingCounts.get(drive.id) ?? 0}
-              />
+                driveId={drive.id}
+                driveTitle={drive.title}
+                enabled={isSuperUser}
+              >
+                <UpcomingCard
+                  drive={drive}
+                  userRank={userRank}
+                  registeredDrivers={upcomingCounts.get(drive.id) ?? 0}
+                />
+              </SwipeToDeleteRow>
             ))}
           </div>
         )
@@ -381,12 +398,18 @@ export default async function DrivesPage({
         ) : (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {completedDrives.map((drive) => (
-              <CompletedCard
+              <SwipeToDeleteRow
                 key={drive.id}
-                drive={drive}
-                registeredDrivers={completedDriverCounts.get(drive.id) ?? 0}
-                hasReports={(completedReportCounts.get(drive.id) ?? 0) > 0}
-              />
+                driveId={drive.id}
+                driveTitle={drive.title}
+                enabled={isSuperUser}
+              >
+                <CompletedCard
+                  drive={drive}
+                  registeredDrivers={completedDriverCounts.get(drive.id) ?? 0}
+                  hasReports={(completedReportCounts.get(drive.id) ?? 0) > 0}
+                />
+              </SwipeToDeleteRow>
             ))}
           </div>
         )

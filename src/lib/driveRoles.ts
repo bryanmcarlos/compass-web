@@ -10,6 +10,8 @@
  * assume that's already true and don't re-derive it.
  */
 
+import { rankNameFromLevel } from "@/lib/constants";
+
 export type RegistrationRole = "Driver" | "Support" | "Lead";
 
 export const ALL_REGISTRATION_ROLES: RegistrationRole[] = ["Driver", "Support", "Lead"];
@@ -69,4 +71,20 @@ export function getAvailableRoles({
     default:
       return [];
   }
+}
+
+/** A registration counts toward a drive's active "driver slot" numerator
+ * (the "10/18 Drivers Registered" figure) when it's a Driver, or a Support
+ * registration from someone who isn't a full Marshal — an Advanced member
+ * Supporting a drive is still occupying a driver-equivalent seat, but a
+ * Marshal Supporting isn't. Uses the same driver_rank-with-current_rank-
+ * fallback resolution as the roster grouping in ConvoyRosterTab. */
+export function countsAsDriverSlot(
+  role: RegistrationRole,
+  driverRank: string | null,
+  currentRank: number,
+): boolean {
+  if (role === "Driver") return true;
+  if (role !== "Support") return false;
+  return (driverRank ?? rankNameFromLevel(currentRank)) !== "Marshal";
 }
