@@ -202,7 +202,7 @@ export function RouteLogisticsTab({ drive }: { drive: RouteLogisticsDrive }) {
         <CollapsibleSection
           title="Drive Notes"
           icon={<ScrollText className="h-4 w-4 text-forest" />}
-          defaultOpen
+          defaultOpen={false}
         >
           <div className="text-sm text-charcoal-light/90">
             <Markdown
