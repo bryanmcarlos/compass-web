@@ -78,7 +78,7 @@ export function DriveHero({
             <LikeButton
               initialLiked={viewerLiked}
               initialCount={likeCount}
-              toggleAction={() => toggleDriveReaction(driveId)}
+              toggleAction={toggleDriveReaction.bind(null, driveId)}
             />
           </div>
         </div>

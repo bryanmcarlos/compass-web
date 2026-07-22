@@ -82,7 +82,7 @@ export function TripReportCard({
           <LikeButton
             initialLiked={viewerLiked}
             initialCount={likeCount}
-            toggleAction={() => toggleTripReportReaction(report.id)}
+            toggleAction={toggleTripReportReaction.bind(null, report.id)}
           />
           {report.is_approved ? (
             <span className="flex items-center gap-1 rounded-full bg-forest/10 px-1.5 py-0.5 text-[10px] font-semibold text-forest">

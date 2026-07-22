@@ -250,7 +250,7 @@ export default async function Home() {
                   <LikeButton
                     initialLiked={a.viewerLiked}
                     initialCount={a.likeCount}
-                    toggleAction={() => toggleAnnouncementReaction(a.id)}
+                    toggleAction={toggleAnnouncementReaction.bind(null, a.id)}
                   />
                 </div>
               </li>
