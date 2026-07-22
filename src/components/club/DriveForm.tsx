@@ -24,11 +24,14 @@ import {
   Tent,
   Image as ImageIcon,
   Upload,
+  MapPin,
 } from "lucide-react";
 import { createDrive, updateDrive, type DriveFormState } from "@/app/(app)/drives/actions";
 import { CLUB_CONFIG, COMPASS_RANKS } from "@/lib/constants";
 import { applyDriveTitlePrefix, stripDriveTitlePrefix } from "@/lib/driveTitle";
 import type { DriveStatus } from "@/components/club/DriveBadges";
+import { LocationPickerModal, type PickedLocation } from "@/components/club/LocationPickerModal";
+import { CopyToClipboardButton } from "@/components/club/CopyToClipboardButton";
 
 const STATUSES: DriveStatus[] = ["Scheduled", "Completed", "Cancelled"];
 
@@ -64,7 +67,9 @@ export type DriveFormValues = {
   meeting_point_name: string | null;
   coordinates: string | null;
   exit_location: string | null;
+  exit_location_map_url: string | null;
   nearest_petrol_station: string | null;
+  nearest_petrol_station_map_url: string | null;
   map_url: string | null;
   meeting_time: string | null;
   drive_start_time: string | null;
@@ -96,7 +101,9 @@ type TextFieldsState = {
   meetingPointName: string;
   coordinates: string;
   exitLocation: string;
+  exitLocationMapUrl: string;
   nearestPetrolStation: string;
+  nearestPetrolStationMapUrl: string;
   mapUrl: string;
   meetingTime: string;
   driveStartTime: string;
@@ -122,7 +129,9 @@ function buildInitialFields(initialValues?: DriveFormValues): TextFieldsState {
     meetingPointName: initialValues?.meeting_point_name ?? "",
     coordinates: initialValues?.coordinates ?? "",
     exitLocation: initialValues?.exit_location ?? "",
+    exitLocationMapUrl: initialValues?.exit_location_map_url ?? "",
     nearestPetrolStation: initialValues?.nearest_petrol_station ?? "",
+    nearestPetrolStationMapUrl: initialValues?.nearest_petrol_station_map_url ?? "",
     mapUrl: initialValues?.map_url ?? "",
     meetingTime: toHHMM(initialValues?.meeting_time),
     driveStartTime: toHHMM(initialValues?.drive_start_time),
@@ -205,6 +214,45 @@ export function DriveForm({
   );
   const [removeBanner, setRemoveBanner] = useState(false);
   const bannerInputRef = useRef<HTMLInputElement>(null);
+
+  // Which field's "Pick on Map" button opened the picker — drives the
+  // auto-population rule applied in handleLocationConfirm below, since the
+  // three trigger points populate different sets of fields.
+  const [activePickerField, setActivePickerField] = useState<
+    "meetingPoint" | "exitLocation" | "nearestPetrolStation" | null
+  >(null);
+  const [pickerTitle, setPickerTitle] = useState("Pick a Location");
+
+  function openLocationPicker(
+    field: "meetingPoint" | "exitLocation" | "nearestPetrolStation",
+    title: string,
+  ) {
+    setActivePickerField(field);
+    setPickerTitle(title);
+  }
+
+  function handleLocationConfirm(picked: PickedLocation) {
+    if (activePickerField === "meetingPoint") {
+      setFields((prev) => ({
+        ...prev,
+        meetingPointName: picked.name,
+        coordinates: `${picked.lat}, ${picked.lng}`,
+        mapUrl: picked.mapUrl,
+      }));
+    } else if (activePickerField === "exitLocation") {
+      setFields((prev) => ({
+        ...prev,
+        exitLocation: picked.name,
+        exitLocationMapUrl: picked.mapUrl,
+      }));
+    } else if (activePickerField === "nearestPetrolStation") {
+      setFields((prev) => ({
+        ...prev,
+        nearestPetrolStation: picked.name,
+        nearestPetrolStationMapUrl: picked.mapUrl,
+      }));
+    }
+  }
 
   // Union across every selected rank's curriculum — a multi-rank drive can
   // check off must-skills from any of its covered ranks, not just the
@@ -502,10 +550,20 @@ export function DriveForm({
       </div>
 
       <div className="flex flex-col gap-4 border-t border-sand pt-6">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
-          <MapPinned className="h-4 w-4 text-forest" />
-          Meeting Point
-        </h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
+            <MapPinned className="h-4 w-4 text-forest" />
+            Meeting Point
+          </h2>
+          <button
+            type="button"
+            onClick={() => openLocationPicker("meetingPoint", "Pick the Meeting Point")}
+            className="flex items-center gap-1.5 rounded-lg border border-forest/40 bg-off-white px-3 py-1.5 text-xs font-semibold text-forest transition-colors hover:bg-forest/10"
+          >
+            <MapPin className="h-3.5 w-3.5" />
+            Pick on Map
+          </button>
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <TextField
             id="meetingPointName"
@@ -515,43 +573,123 @@ export function DriveForm({
             value={fields.meetingPointName}
             onChange={handleFieldChange}
           />
-          <TextField
-            id="coordinates"
-            name="coordinates"
-            label="Coordinates"
-            placeholder="e.g. 24.9549574, 55.7128488"
-            value={fields.coordinates}
-            onChange={handleFieldChange}
-          />
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="coordinates" className="text-sm font-medium text-charcoal">
+              Coordinates
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                id="coordinates"
+                name="coordinates"
+                type="text"
+                placeholder="e.g. 24.9549574, 55.7128488"
+                value={fields.coordinates}
+                onChange={handleFieldChange}
+                className="w-full rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+              />
+              {fields.coordinates.trim() && (
+                <CopyToClipboardButton text={fields.coordinates.trim()} label="Copy coordinates" />
+              )}
+            </div>
+          </div>
         </div>
-        <TextField
-          id="mapUrl"
-          name="mapUrl"
-          label="Map URL"
-          type="text"
-          placeholder="maps.app.goo.gl/... or https://maps.google.com/..."
-          value={fields.mapUrl}
-          onChange={handleFieldChange}
-        />
+        <div className="flex flex-col gap-1.5">
+          <TextField
+            id="mapUrl"
+            name="mapUrl"
+            label="Map URL"
+            type="text"
+            placeholder="maps.app.goo.gl/... or https://maps.google.com/..."
+            value={fields.mapUrl}
+            onChange={handleFieldChange}
+          />
+          {fields.mapUrl.trim() && (
+            <a
+              href={fields.mapUrl.trim()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-fit text-xs font-medium text-forest hover:underline"
+            >
+              Open link ↗
+            </a>
+          )}
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <TextField
-            id="exitLocation"
-            name="exitLocation"
-            label="Exit location"
-            placeholder="e.g. Same as meeting point"
-            value={fields.exitLocation}
-            onChange={handleFieldChange}
-          />
-          <TextField
-            id="nearestPetrolStation"
-            name="nearestPetrolStation"
-            label="Nearest petrol station"
-            placeholder="e.g. ADNOC Sweihan"
-            value={fields.nearestPetrolStation}
-            onChange={handleFieldChange}
-          />
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="exitLocation" className="text-sm font-medium text-charcoal">
+                Exit location
+              </label>
+              <button
+                type="button"
+                onClick={() => openLocationPicker("exitLocation", "Pick the Exit Location")}
+                className="flex items-center gap-1 text-xs font-semibold text-forest hover:underline"
+              >
+                <MapPin className="h-3.5 w-3.5" />
+                Pick on Map
+              </button>
+            </div>
+            <input
+              id="exitLocation"
+              name="exitLocation"
+              type="text"
+              placeholder="e.g. Same as meeting point"
+              value={fields.exitLocation}
+              onChange={handleFieldChange}
+              className="w-full rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+            />
+            <TextField
+              id="exitLocationMapUrl"
+              name="exitLocationMapUrl"
+              label="Exit location map URL"
+              placeholder="Auto-filled by Pick on Map"
+              value={fields.exitLocationMapUrl}
+              onChange={handleFieldChange}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="nearestPetrolStation" className="text-sm font-medium text-charcoal">
+                Nearest petrol station
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  openLocationPicker("nearestPetrolStation", "Pick the Nearest Petrol Station")
+                }
+                className="flex items-center gap-1 text-xs font-semibold text-forest hover:underline"
+              >
+                <MapPin className="h-3.5 w-3.5" />
+                Pick on Map
+              </button>
+            </div>
+            <input
+              id="nearestPetrolStation"
+              name="nearestPetrolStation"
+              type="text"
+              placeholder="e.g. ADNOC Sweihan"
+              value={fields.nearestPetrolStation}
+              onChange={handleFieldChange}
+              className="w-full rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+            />
+            <TextField
+              id="nearestPetrolStationMapUrl"
+              name="nearestPetrolStationMapUrl"
+              label="Petrol station map URL"
+              placeholder="Auto-filled by Pick on Map"
+              value={fields.nearestPetrolStationMapUrl}
+              onChange={handleFieldChange}
+            />
+          </div>
         </div>
       </div>
+
+      <LocationPickerModal
+        isOpen={activePickerField !== null}
+        onClose={() => setActivePickerField(null)}
+        onConfirm={handleLocationConfirm}
+        title={pickerTitle}
+      />
 
       <div className="flex flex-col gap-4 border-t border-sand pt-6">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">

@@ -177,6 +177,18 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
   if (mapUrl === "invalid") {
     return { ok: false, message: "Enter a valid map link." };
   }
+  const exitLocationMapUrl = parseOptionalMapUrl(
+    String(formData.get("exitLocationMapUrl") ?? ""),
+  );
+  if (exitLocationMapUrl === "invalid") {
+    return { ok: false, message: "Enter a valid map link for the exit location." };
+  }
+  const nearestPetrolStationMapUrl = parseOptionalMapUrl(
+    String(formData.get("nearestPetrolStationMapUrl") ?? ""),
+  );
+  if (nearestPetrolStationMapUrl === "invalid") {
+    return { ok: false, message: "Enter a valid map link for the nearest petrol station." };
+  }
 
   const meetingTime = parseOptionalTime(String(formData.get("meetingTime") ?? ""));
   if (meetingTime === "invalid") {
@@ -248,7 +260,9 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
       meeting_point_name: optionalText("meetingPointName"),
       coordinates: optionalText("coordinates"),
       exit_location: optionalText("exitLocation"),
+      exit_location_map_url: exitLocationMapUrl,
       nearest_petrol_station: optionalText("nearestPetrolStation"),
+      nearest_petrol_station_map_url: nearestPetrolStationMapUrl,
       map_url: mapUrl,
       meeting_time: meetingTime,
       drive_start_time: driveStartTime,

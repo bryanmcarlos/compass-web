@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { markdownComponents } from "@/components/club/markdownComponents";
 import { CollapsibleSection } from "@/components/club/CollapsibleSection";
+import { CopyToClipboardButton } from "@/components/club/CopyToClipboardButton";
 import { formatDate, formatTime } from "@/lib/format";
 import { formatDriveNotes } from "@/lib/driveNotesText";
 import { htmlSanitizeSchema } from "@/lib/htmlSanitizeSchema";
@@ -23,7 +24,9 @@ export type RouteLogisticsDrive = {
   meeting_point_name: string | null;
   coordinates: string | null;
   exit_location: string | null;
+  exit_location_map_url: string | null;
   nearest_petrol_station: string | null;
+  nearest_petrol_station_map_url: string | null;
   map_url: string | null;
   meeting_time: string | null;
   drive_start_time: string | null;
@@ -52,7 +55,10 @@ export function RouteLogisticsTab({ drive }: { drive: RouteLogisticsDrive }) {
             <p className="text-sm text-charcoal">{drive.meeting_point_name}</p>
           )}
           {drive.coordinates && (
-            <p className="font-mono text-xs text-charcoal-light/70">{drive.coordinates}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="font-mono text-xs text-charcoal-light/70">{drive.coordinates}</p>
+              <CopyToClipboardButton text={drive.coordinates} label="Copy coordinates" />
+            </div>
           )}
           {drive.map_url && (
             <a
@@ -72,7 +78,20 @@ export function RouteLogisticsTab({ drive }: { drive: RouteLogisticsDrive }) {
                   <DoorOpen className="mt-0.5 h-4 w-4 shrink-0 text-charcoal-light/60" />
                   <span>
                     <dt className="inline text-charcoal-light/70">Exit: </dt>
-                    <dd className="inline font-medium text-charcoal">{drive.exit_location}</dd>
+                    <dd className="inline font-medium text-charcoal">
+                      {drive.exit_location_map_url ? (
+                        <a
+                          href={drive.exit_location_map_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-forest hover:underline"
+                        >
+                          {drive.exit_location}
+                        </a>
+                      ) : (
+                        drive.exit_location
+                      )}
+                    </dd>
                   </span>
                 </div>
               )}
@@ -82,7 +101,18 @@ export function RouteLogisticsTab({ drive }: { drive: RouteLogisticsDrive }) {
                   <span>
                     <dt className="inline text-charcoal-light/70">Nearest petrol: </dt>
                     <dd className="inline font-medium text-charcoal">
-                      {drive.nearest_petrol_station}
+                      {drive.nearest_petrol_station_map_url ? (
+                        <a
+                          href={drive.nearest_petrol_station_map_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-forest hover:underline"
+                        >
+                          {drive.nearest_petrol_station}
+                        </a>
+                      ) : (
+                        drive.nearest_petrol_station
+                      )}
                     </dd>
                   </span>
                 </div>
