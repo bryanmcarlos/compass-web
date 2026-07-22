@@ -11,8 +11,8 @@ import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
 import { countsAsDriverSlot } from "@/lib/driveRoles";
 
 const DRIVES_TABS = [
-  { key: "upcoming", label: "Upcoming Runs" },
-  { key: "completed", label: "Completed Last 5" },
+  { key: "upcoming", label: "Upcoming" },
+  { key: "completed", label: "Last 5" },
   { key: "archive", label: "Completed Archive" },
 ];
 
@@ -354,8 +354,8 @@ export default async function DrivesPage({
 
       <Tabs
         tabs={[
-          { key: "upcoming", label: `Upcoming Runs (${upcomingCount ?? 0})` },
-          { key: "completed", label: "Completed Last 5" },
+          { key: "upcoming", label: `Upcoming (${upcomingCount ?? 0})` },
+          { key: "completed", label: "Last 5" },
           { key: "archive", label: `Completed Archive (${archiveCount ?? 0})` },
         ]}
         defaultKey="upcoming"
