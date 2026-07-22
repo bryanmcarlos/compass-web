@@ -420,7 +420,11 @@ export default async function DrivesPage({
           message="Completed and cancelled drives will show up here."
         />
       ) : (
-        <ArchiveDriveList drives={archiveDrives} unknownDateCount={unknownDateCount} />
+        <ArchiveDriveList
+          drives={archiveDrives}
+          unknownDateCount={unknownDateCount}
+          isSuperUser={isSuperUser}
+        />
       )}
     </div>
   );

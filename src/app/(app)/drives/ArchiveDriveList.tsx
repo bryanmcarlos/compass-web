@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Search } from "lucide-react";
 import { RankBadge } from "@/components/club/RankBadge";
 import { StatusIndicator, type DriveStatus } from "@/components/club/DriveBadges";
+import { SwipeToDeleteRow } from "@/components/club/SwipeToDeleteRow";
 import { rankNameFromLevel, CLUB_CONFIG, type RankName } from "@/lib/constants";
 import { formatDate } from "@/lib/format";
 
@@ -28,9 +29,11 @@ const RANK_FILTERS: RankName[] = CLUB_CONFIG.ranks.map((r) => r.title as RankNam
 export function ArchiveDriveList({
   drives,
   unknownDateCount,
+  isSuperUser,
 }: {
   drives: ArchiveDrive[];
   unknownDateCount: number;
+  isSuperUser: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [rankFilter, setRankFilter] = useState<RankName | "All">("All");
@@ -80,30 +83,37 @@ export function ArchiveDriveList({
         <ul className="flex flex-col gap-1.5">
           {filtered.map((drive) => (
             <li key={drive.id}>
-              <Link
-                href={`/drives/${drive.id}`}
-                className="flex items-center gap-3 rounded-lg border border-sand bg-off-white px-3 py-2 transition-colors hover:border-primary/30 hover:bg-primary/5"
+              <SwipeToDeleteRow
+                driveId={drive.id}
+                driveTitle={drive.title}
+                enabled={isSuperUser}
+                radiusClassName="rounded-lg"
               >
-                <span className="hidden font-mono text-xs text-charcoal-light/50 uppercase sm:inline">
-                  {drive.drive_id_code}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-charcoal">
-                    {drive.title}
+                <Link
+                  href={`/drives/${drive.id}`}
+                  className="flex items-center gap-3 rounded-lg border border-sand bg-off-white px-3 py-2 transition-colors hover:border-primary/30 hover:bg-primary/5"
+                >
+                  <span className="hidden font-mono text-xs text-charcoal-light/50 uppercase sm:inline">
+                    {drive.drive_id_code}
                   </span>
-                  <span className="block truncate text-xs text-charcoal-light/60">
-                    {drive.location} · {formatDate(drive.drive_date)}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-charcoal">
+                      {drive.title}
+                    </span>
+                    <span className="block truncate text-xs text-charcoal-light/60">
+                      {drive.location} · {formatDate(drive.drive_date)}
+                    </span>
                   </span>
-                </span>
-                {drive.status === "Cancelled" && (
-                  <StatusIndicator status={drive.status} className="shrink-0 text-[11px]" />
-                )}
-                <RankBadge
-                  rank={rankNameFromLevel(drive.target_rank)}
-                  size="xs"
-                  className="shrink-0 text-[11px]"
-                />
-              </Link>
+                  {drive.status === "Cancelled" && (
+                    <StatusIndicator status={drive.status} className="shrink-0 text-[11px]" />
+                  )}
+                  <RankBadge
+                    rank={rankNameFromLevel(drive.target_rank)}
+                    size="xs"
+                    className="shrink-0 text-[11px]"
+                  />
+                </Link>
+              </SwipeToDeleteRow>
             </li>
           ))}
         </ul>

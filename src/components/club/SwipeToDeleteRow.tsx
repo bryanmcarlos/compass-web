@@ -19,11 +19,17 @@ export function SwipeToDeleteRow({
   driveTitle,
   enabled,
   children,
+  radiusClassName = "rounded-2xl",
 }: {
   driveId: string;
   driveTitle: string;
   enabled: boolean;
   children: ReactNode;
+  /** Matches the wrapped row's own corner radius — the card grid
+   * (upcoming/completed) uses rounded-2xl, the compact Archive list uses
+   * rounded-lg, and a mismatched wrapper radius would show as a visible
+   * seam around the swipe-revealed Delete button. */
+  radiusClassName?: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -80,7 +86,7 @@ export function SwipeToDeleteRow({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-2xl">
+    <div className={`relative overflow-hidden ${radiusClassName}`}>
       <button
         type="button"
         onClick={handleDelete}
