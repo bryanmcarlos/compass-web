@@ -28,7 +28,11 @@ async function requireAdmin() {
   return { supabase, user, isAdmin: profile?.is_admin ?? false };
 }
 
-const VALID_RANKS = new Set([1, 2, 3, 4, 5]);
+// 0 (Member) is a real, selectable rank — VALID_RANKS previously excluded
+// it, which rejected every attempt to set a member back down to Member
+// with "Invalid rank." even though the dropdown (populated from
+// CLUB_CONFIG.ranks, which starts at level 0) genuinely offers it.
+const VALID_RANKS = new Set([0, 1, 2, 3, 4, 5]);
 
 export async function updateMemberRank(
   memberId: string,

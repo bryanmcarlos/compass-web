@@ -10,9 +10,9 @@ import {
   ScrollText,
   Fuel,
   DoorOpen,
-  ChevronDown,
 } from "lucide-react";
 import { markdownComponents } from "@/components/club/markdownComponents";
+import { CollapsibleSection } from "@/components/club/CollapsibleSection";
 import { formatDate, formatTime } from "@/lib/format";
 import { formatDriveNotes } from "@/lib/driveNotesText";
 
@@ -196,18 +196,17 @@ export function RouteLogisticsTab({ drive }: { drive: RouteLogisticsDrive }) {
       )}
 
       {drive.drive_notes && (
-        <details open className="group rounded-2xl border border-sand bg-off-white p-5 shadow-sm sm:p-6">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-charcoal marker:content-none">
-            <ScrollText className="h-4 w-4 text-forest" />
-            Drive Notes
-            <ChevronDown className="ml-auto h-4 w-4 text-charcoal-light/50 transition-transform group-open:rotate-180" />
-          </summary>
-          <div className="mt-3 text-sm text-charcoal-light/90">
+        <CollapsibleSection
+          title="Drive Notes"
+          icon={<ScrollText className="h-4 w-4 text-forest" />}
+          defaultOpen
+        >
+          <div className="text-sm text-charcoal-light/90">
             <Markdown components={markdownComponents}>
               {formatDriveNotes(drive.drive_notes)}
             </Markdown>
           </div>
-        </details>
+        </CollapsibleSection>
       )}
     </div>
   );
