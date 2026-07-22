@@ -1,13 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendSms } from "@/lib/sms";
+import { SITE_URL } from "@/lib/siteUrl";
 
 // UAE, no DST — matches every timestamp in this club's own historical trip
 // report data ("GMT 4"). drives.drive_date / drive_end_time are stored as
 // club-local wall-clock values with no timezone of their own.
 const CLUB_UTC_OFFSET_HOURS = 4;
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://compass-web.vercel.app";
 
 /** Builds the UTC instant a drive's end time falls at, without depending on
  * the runtime's ambient timezone (Date.UTC is used explicitly rather than

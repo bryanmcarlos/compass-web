@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Lock, ShieldAlert, Settings, Megaphone, CheckSquare, PenLine } from "lucide-react";
+import { ArrowLeft, Lock, ShieldAlert, Settings, CheckSquare, PenLine } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { RegisterDriveForm } from "@/components/club/RegisterDriveForm";
 import { UnregisterButton } from "@/components/club/UnregisterButton";
 import { CopyRosterButton } from "@/components/club/CopyRosterButton";
+import { BroadcastNoticeModal } from "@/components/club/BroadcastNoticeModal";
+import type { BroadcastTemplateData } from "@/lib/broadcastTemplate";
 import { Tabs } from "@/components/club/Tabs";
 import { DriveHero } from "./DriveHero";
 import { RouteLogisticsTab } from "./tabs/RouteLogisticsTab";
@@ -12,11 +14,12 @@ import { ConvoyRosterTab, type Registration } from "./tabs/ConvoyRosterTab";
 import { TripReportsTab } from "./tabs/TripReportsTab";
 import type { TripReportCardData } from "@/components/club/TripReportCard";
 import type { PendingReport } from "@/components/club/PendingReportsReview";
-import { CLUB_CONFIG } from "@/lib/constants";
-import { formatDate } from "@/lib/format";
+import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
+import { formatDate, formatTime } from "@/lib/format";
 import { getAvailableRoles, countsAsDriverSlot, type RegistrationRole } from "@/lib/driveRoles";
 import { checkMemberEligibleForDrive } from "./actions";
 import { getAppSettings } from "@/lib/appSettings";
+import { SITE_URL } from "@/lib/siteUrl";
 import type { DriveStatus } from "@/components/club/DriveBadges";
 
 type DriveDetail = {
@@ -106,7 +109,7 @@ export default async function DriveDetailPage({
   }
   const drive = data;
 
-  const { defaultDriveBannerUrl } = await getAppSettings();
+  const { defaultDriveBannerUrl, broadcastMessageTemplate } = await getAppSettings();
 
   const {
     data: { user },
@@ -288,8 +291,21 @@ export default async function DriveDetailPage({
       : []),
   ].join("\n");
 
-  const broadcastMessage = `Hello COMPASS team, here is the official convoy list for our upcoming drive:\n\n${convoyRosterText}`;
-  const broadcastLink = `https://wa.me/?text=${encodeURIComponent(broadcastMessage)}`;
+  const broadcastData: BroadcastTemplateData = {
+    drive_title: drive.title,
+    drive_code: drive.drive_id_code,
+    drive_date: formatDate(drive.drive_date),
+    meeting_time: formatTime(drive.meeting_time) ?? "TBD",
+    meeting_point: drive.meeting_point_name ?? "TBD",
+    map_url: drive.map_url ?? "TBD",
+    target_rank:
+      CLUB_CONFIG.ranks.find((r) => r.level === drive.target_rank)?.title ??
+      rankNameFromLevel(drive.target_rank),
+    lead_marshal: drive.lead_marshal
+      ? (drive.lead_marshal.full_name ?? drive.lead_marshal.username)
+      : "TBD",
+    drive_link: `${SITE_URL}/drives/${drive.id}`,
+  };
 
   // Computed once, used in both the empty-state and has-reports layouts
   // inside TripReportsTab, so the three-way Share / Edit / not-registered
@@ -467,20 +483,12 @@ export default async function DriveDetailPage({
           <div className="flex flex-col gap-2 border-b border-forest/20 pb-4">
             <p className="text-sm text-charcoal-light/80">
               Copy a clean, emoji-formatted convoy roster to paste anywhere,
-              or broadcast it straight to WhatsApp with a ready-made
-              announcement.
+              or broadcast a customizable drive notice to WhatsApp or
+              Messenger.
             </p>
             <div className="flex flex-wrap gap-3">
               <CopyRosterButton text={convoyRosterText} />
-              <a
-                href={broadcastLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex w-fit items-center gap-2 rounded-lg border border-forest/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-forest transition-colors hover:bg-forest/10"
-              >
-                <Megaphone className="h-4 w-4" />
-                Broadcast Notice
-              </a>
+              <BroadcastNoticeModal template={broadcastMessageTemplate} data={broadcastData} />
             </div>
           </div>
 

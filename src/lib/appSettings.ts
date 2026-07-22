@@ -1,10 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+import { DEFAULT_BROADCAST_TEMPLATE } from "@/lib/broadcastTemplate";
 
 export type AppSettings = {
   primaryColor: string;
   logoUrl: string | null;
   defaultDriveBannerUrl: string | null;
   requireTripReportApproval: boolean;
+  broadcastMessageTemplate: string;
 };
 
 export const FALLBACK_PRIMARY_COLOR = "#FFBF2D";
@@ -24,6 +26,7 @@ export async function getAppSettings(): Promise<AppSettings> {
     logoUrl: null,
     defaultDriveBannerUrl: null,
     requireTripReportApproval: true,
+    broadcastMessageTemplate: DEFAULT_BROADCAST_TEMPLATE,
   };
 
   try {
@@ -34,7 +37,9 @@ export async function getAppSettings(): Promise<AppSettings> {
 
     const { data, error } = await supabase
       .from("app_settings")
-      .select("primary_color, logo_url, default_drive_banner_url, require_trip_report_approval")
+      .select(
+        "primary_color, logo_url, default_drive_banner_url, require_trip_report_approval, broadcast_message_template",
+      )
       .limit(1)
       .maybeSingle();
 
@@ -47,6 +52,7 @@ export async function getAppSettings(): Promise<AppSettings> {
       logoUrl: data.logo_url,
       defaultDriveBannerUrl: data.default_drive_banner_url,
       requireTripReportApproval: data.require_trip_report_approval ?? true,
+      broadcastMessageTemplate: data.broadcast_message_template || DEFAULT_BROADCAST_TEMPLATE,
     };
   } catch {
     return fallback;

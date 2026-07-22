@@ -145,6 +145,47 @@ export async function updateAppSettings(
   }
 }
 
+export type BroadcastTemplateState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+};
+
+/** Its own Server Action and its own Save button, same reasoning as
+ * toggleTripReportModeration below — a broadcast template edit shouldn't be
+ * gated behind the unrelated branding form's submit, and vice versa. */
+export async function updateBroadcastTemplate(
+  _prevState: BroadcastTemplateState,
+  formData: FormData,
+): Promise<BroadcastTemplateState> {
+  const { supabase, user, isAdmin } = await requireAdmin();
+
+  if (!user) {
+    return { status: "error", message: "You need to be signed in to update site settings." };
+  }
+  if (!isAdmin) {
+    return { status: "error", message: "Only Super Admins can update site settings." };
+  }
+
+  const template = String(formData.get("broadcastMessageTemplate") ?? "").trim();
+  if (!template) {
+    return { status: "error", message: "The broadcast template can't be empty." };
+  }
+
+  const { error } = await supabase
+    .from("app_settings")
+    .update({ broadcast_message_template: template })
+    .eq("id", 1);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [updateBroadcastTemplate]:", error);
+    return { status: "error", message: "Couldn't save the template. Please try again." };
+  }
+
+  revalidatePath("/", "layout");
+
+  return { status: "success", message: "Broadcast template saved." };
+}
+
 export type ToggleModerationState = {
   status: "idle" | "error" | "success";
   message: string | null;
