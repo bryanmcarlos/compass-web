@@ -77,6 +77,7 @@ export function LocationPickerModal({
   const mapRef = useRef<google.maps.Map | null>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
+  const placesServiceRef = useRef<google.maps.places.PlacesService | null>(null);
   // The query text a Places dropdown selection last resolved — lets Enter
   // skip re-geocoding when the box already reflects a confirmed pick (e.g.
   // Google's own widget already selected an arrow-key-highlighted
@@ -105,16 +106,69 @@ export function LocationPickerModal({
     onClose();
   }
 
-  function reverseGeocode(lat: number, lng: number) {
+  // Google's reverse geocoder, given nothing but coordinates, defaults to
+  // its most *precise* match — which in the desert terrain these drives run
+  // in usually has no real street address to report, so it falls back to a
+  // Plus Code stapled onto a long address string (e.g. "7XQ8+VJ Sweihan -
+  // Abu Dhabi, United Arab Emirates"). That's correct but unreadable as a
+  // "Meeting point name". Prefer, in order: a Plus Code result's own
+  // `compound_code` (its human-readable part with the code trimmed off — a
+  // Plus Code result always has one), then the shortest non-Plus-Code result
+  // available (locality/sublocality reads as "Sweihan, Abu Dhabi" instead of
+  // a full street address).
+  function shortNameFromGeocodeResults(results: google.maps.GeocoderResult[]): string {
+    const plusCode = results.find((r) => r.types.includes("plus_code"));
+    if (plusCode?.plus_code?.compound_code) {
+      // "7XQ8+VJ Sweihan, Abu Dhabi, United Arab Emirates" -> drop the code.
+      return plusCode.plus_code.compound_code.replace(/^\S+\+\S+\s*/, "");
+    }
+    const nonPlusCode = results.filter((r) => !r.types.includes("plus_code"));
+    if (nonPlusCode.length === 0) return results[0].formatted_address;
+    return nonPlusCode.reduce((shortest, r) =>
+      r.formatted_address.length < shortest.formatted_address.length ? r : shortest,
+    ).formatted_address;
+  }
+
+  function getPlacesService(): google.maps.places.PlacesService | null {
+    if (!mapRef.current) return null;
+    if (!placesServiceRef.current) {
+      placesServiceRef.current = new google.maps.places.PlacesService(mapRef.current);
+    }
+    return placesServiceRef.current;
+  }
+
+  function geocodeFallback(lat: number, lng: number) {
     if (!geocoderRef.current) {
       geocoderRef.current = new google.maps.Geocoder();
     }
-    setGeocoding(true);
     geocoderRef.current.geocode({ location: { lat, lng } }, (results, status) => {
       setGeocoding(false);
-      if (status === "OK" && results?.[0]) {
-        setPlaceName(results[0].formatted_address);
+      if (status === "OK" && results && results.length > 0) {
+        setPlaceName(shortNameFromGeocodeResults(results));
       }
+    });
+  }
+
+  // Dropping/dragging a pin has no Places result to read a name from the
+  // way a search-box selection does (handlePlaceChanged, below) — so first
+  // check whether the pin landed on an actual named place (a petrol
+  // station, a shop) within a tight radius and use its real name, e.g.
+  // "ADNOC Sweihan", before falling back to a geocoded address string.
+  function resolvePinLocation(lat: number, lng: number) {
+    setGeocoding(true);
+    const placesService = getPlacesService();
+    if (!placesService) {
+      geocodeFallback(lat, lng);
+      return;
+    }
+    placesService.nearbySearch({ location: { lat, lng }, radius: 60 }, (results, status) => {
+      const nearest = results?.[0];
+      if (status === google.maps.places.PlacesServiceStatus.OK && nearest?.name) {
+        setPlaceName(nearest.name);
+        setGeocoding(false);
+        return;
+      }
+      geocodeFallback(lat, lng);
     });
   }
 
@@ -127,7 +181,7 @@ export function LocationPickerModal({
     const lat = e.latLng.lat();
     const lng = e.latLng.lng();
     setPosition({ lat, lng });
-    reverseGeocode(lat, lng);
+    resolvePinLocation(lat, lng);
   }
 
   function handleMarkerDragEnd(e: google.maps.MapMouseEvent) {
@@ -135,7 +189,7 @@ export function LocationPickerModal({
     const lat = e.latLng.lat();
     const lng = e.latLng.lng();
     setPosition({ lat, lng });
-    reverseGeocode(lat, lng);
+    resolvePinLocation(lat, lng);
   }
 
   function handlePlaceChanged() {
