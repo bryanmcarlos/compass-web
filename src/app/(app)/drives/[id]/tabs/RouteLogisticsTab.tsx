@@ -1,4 +1,6 @@
 import Markdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import {
   MapPinned,
   Clock,
@@ -15,6 +17,7 @@ import { markdownComponents } from "@/components/club/markdownComponents";
 import { CollapsibleSection } from "@/components/club/CollapsibleSection";
 import { formatDate, formatTime } from "@/lib/format";
 import { formatDriveNotes } from "@/lib/driveNotesText";
+import { driveNotesSanitizeSchema } from "@/lib/driveNotesSanitizeSchema";
 
 export type RouteLogisticsDrive = {
   meeting_point_name: string | null;
@@ -202,7 +205,10 @@ export function RouteLogisticsTab({ drive }: { drive: RouteLogisticsDrive }) {
           defaultOpen
         >
           <div className="text-sm text-charcoal-light/90">
-            <Markdown components={markdownComponents}>
+            <Markdown
+              components={markdownComponents}
+              rehypePlugins={[rehypeRaw, [rehypeSanitize, driveNotesSanitizeSchema]]}
+            >
               {formatDriveNotes(drive.drive_notes)}
             </Markdown>
           </div>
