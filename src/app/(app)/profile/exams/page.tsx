@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Flag } from "lucide-react";
+import { ArrowLeft, Flag, CircleCheck, Circle } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { ErrorState } from "@/components/club/StateMessage";
 import { ExamSubmissionForm, type ExamStatus, type BuddyOption } from "@/components/club/ExamSubmissionForm";
+import { COMPASS_RANKS } from "@/lib/constants";
 
 export default async function ExamsPage() {
   const supabase = await createClient();
@@ -29,7 +30,7 @@ export default async function ExamsPage() {
     redirect("/profile");
   }
 
-  const [{ data: submissions, error }, { data: memberRows }] = await Promise.all([
+  const [{ data: submissions, error }, { data: memberRows }, { data: reportRows }] = await Promise.all([
     supabase
       .from("exam_submissions")
       .select("exam_type, status")
@@ -42,6 +43,14 @@ export default async function ExamsPage() {
       .eq("is_disabled", false)
       .neq("id", user.id)
       .order("username"),
+    // Same signal used everywhere else this app tracks progression —
+    // approved trip reports and the must-skills their drives covered.
+    supabase
+      .from("trip_reports")
+      .select("drive:drives(must_skills_covered)")
+      .eq("author_id", user.id)
+      .eq("is_approved", true)
+      .overrideTypes<{ drive: { must_skills_covered: string[] | null } | null }[], { merge: false }>(),
   ]);
 
   const latestByType = new Map<string, ExamStatus>();
@@ -55,6 +64,27 @@ export default async function ExamsPage() {
     id: m.id,
     name: m.full_name ?? m.username,
   }));
+
+  // R1/R2 are only unlocked once the 5 required drives and every regular
+  // must-skill are done, per the club roadmap — "Intro to INT" is
+  // deliberately excluded here, since that drive itself only unlocks
+  // *after* passing both challenges (see gatedFinalMustSkill below).
+  const curriculum = COMPASS_RANKS[2];
+  const requiredDrives = curriculum.requiredDrives ?? 0;
+  const approvedDrives = (reportRows ?? []).length;
+  const unlockedSkills = new Set<string>();
+  for (const row of reportRows ?? []) {
+    for (const skill of row.drive?.must_skills_covered ?? []) {
+      unlockedSkills.add(skill);
+    }
+  }
+  const gatedSkill = curriculum.gatedFinalMustSkill;
+  const mustSkills = curriculum.mustSkills ?? [];
+  const regularMustSkills = mustSkills.filter((s) => s !== gatedSkill);
+  const meetsDriveCount = approvedDrives >= requiredDrives;
+  const meetsMustSkills = regularMustSkills.every((s) => unlockedSkills.has(s));
+  const challengesUnlocked = meetsDriveCount && meetsMustSkills;
+  const introToIntDone = !gatedSkill || unlockedSkills.has(gatedSkill);
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
