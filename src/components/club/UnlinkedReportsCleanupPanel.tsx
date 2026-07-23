@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Wrench, CalendarDays, Tags, UserRound, ArrowUpRight } from "lucide-react";
+import { Wrench, CalendarDays, Tags, UserRound, ArrowUpRight, MessagesSquare } from "lucide-react";
 import { CollapsibleSection } from "@/components/club/CollapsibleSection";
 import { LinkTripReportButton } from "@/components/club/LinkTripReportButton";
 import { formatDate } from "@/lib/format";
@@ -15,6 +15,13 @@ export type UnlinkedReport = {
   id: string;
   report_text: string;
   created_at: string;
+  /** Not rendered directly — needed by dedupeByThread's generic constraint
+   * upstream, kept here so the fetched row and the deduped output share one
+   * type. This id is always a thread's root post once deduped, so linking
+   * it (via either candidate list below) moves the whole thread. */
+  thread_id: string | null;
+  /** Other posts sharing this report's thread — 0 for an organic report. */
+  replyCount: number;
   author: { username: string; full_name: string | null } | null;
   dateCandidates: CleanupCandidateDrive[];
   keywordCandidates: CleanupCandidateDrive[];
@@ -73,6 +80,15 @@ function UnlinkedReportCard({ report }: { report: UnlinkedReport }) {
           </span>
           <span>·</span>
           <span>{formatDate(report.created_at)}</span>
+          {report.replyCount > 0 && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1">
+                <MessagesSquare className="h-3 w-3 shrink-0" />
+                +{report.replyCount} {report.replyCount === 1 ? "reply" : "replies"}
+              </span>
+            </>
+          )}
         </div>
         <Link
           href={`/trip-reports/${report.id}`}

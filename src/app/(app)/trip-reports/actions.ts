@@ -383,15 +383,15 @@ export type RelinkState = {
 };
 
 /** Admin-only, purpose-built for the data-cleanup tool on the drive detail
- * page and the /trip-reports "Unlinked Reports" panel. Distinct from
- * linkTripReportToDrive above: that one is additive (a drive can carry many
- * reports, an author attaching their own is never destructive to anyone
- * else's), while this treats a drive's link as a single canonical slot —
- * pointing a report at a drive here first detaches whatever report(s) were
- * already occupying that drive, matching the cleanup tool's actual job of
- * fixing one-to-one mis-links left over from the forum migration. The
- * report's own previous drive (if it had one) is left untouched; only the
- * target drive's slot is cleared. */
+ * page and the /trip-reports "Unlinked Reports" panel. Thread-aware: a
+ * migrated report (trip_reports.thread_id set) is never linked alone —
+ * linking any post from a thread moves `threads.drive_id` and cascades
+ * `drive_id` to every row sharing that thread_id, so the root post and all
+ * its replies move together. An organic report (thread_id null, submitted
+ * through the live app) still links as a single row, exactly as before.
+ * Either way, whatever currently occupies the target drive — another whole
+ * thread, a standalone organic report, or both — is detached first, since
+ * this tool treats a drive's link as a single canonical slot. */
 export async function relinkTripReportToDrive(
   reportId: string,
   driveId: string,
@@ -417,21 +417,54 @@ export async function relinkTripReportToDrive(
     return { status: "error", message: "Only Admins can use the linking cleanup tool." };
   }
 
-  const { data: displaced } = await supabase
+  const { data: target } = await supabase
     .from("trip_reports")
-    .select("id")
-    .eq("drive_id", driveId)
-    .neq("id", reportId);
+    .select("id, thread_id")
+    .eq("id", reportId)
+    .single();
 
-  if (displaced && displaced.length > 0) {
-    const { error: detachError } = await supabase
+  if (!target) {
+    return { status: "error", message: "Couldn't find that trip report." };
+  }
+
+  const { data: occupying } = await supabase
+    .from("trip_reports")
+    .select("id, thread_id")
+    .eq("drive_id", driveId);
+
+  const isDisplaced = (row: { id: string; thread_id: string | null }) =>
+    target.thread_id ? row.thread_id !== target.thread_id : row.id !== reportId;
+
+  const displacedRows = (occupying ?? []).filter(isDisplaced);
+  const displacedThreadIds = Array.from(
+    new Set(displacedRows.map((r) => r.thread_id).filter((t): t is string => t !== null)),
+  );
+  const displacedOrganicIds = displacedRows.filter((r) => r.thread_id === null).map((r) => r.id);
+
+  if (displacedThreadIds.length > 0) {
+    const [{ error: detachThreadsError }, { error: detachThreadReportsError }] = await Promise.all([
+      supabase.from("threads").update({ drive_id: null }).in("id", displacedThreadIds),
+      supabase.from("trip_reports").update({ drive_id: null }).in("thread_id", displacedThreadIds),
+    ]);
+    if (detachThreadsError || detachThreadReportsError) {
+      console.error(
+        "SERVER ACTION ERROR [relinkTripReportToDrive detach threads]:",
+        detachThreadsError ?? detachThreadReportsError,
+      );
+      return {
+        status: "error",
+        message: "Couldn't detach the previously linked thread(s) — nothing was changed.",
+      };
+    }
+  }
+
+  if (displacedOrganicIds.length > 0) {
+    const { error: detachOrganicError } = await supabase
       .from("trip_reports")
       .update({ drive_id: null })
-      .eq("drive_id", driveId)
-      .neq("id", reportId);
-
-    if (detachError) {
-      console.error("SERVER ACTION ERROR [relinkTripReportToDrive detach]:", detachError);
+      .in("id", displacedOrganicIds);
+    if (detachOrganicError) {
+      console.error("SERVER ACTION ERROR [relinkTripReportToDrive detach organic]:", detachOrganicError);
       return {
         status: "error",
         message: "Couldn't detach the previously linked report(s) — nothing was changed.",
@@ -439,14 +472,27 @@ export async function relinkTripReportToDrive(
     }
   }
 
-  const { error } = await supabase
-    .from("trip_reports")
-    .update({ drive_id: driveId })
-    .eq("id", reportId);
-
-  if (error) {
-    console.error("SERVER ACTION ERROR [relinkTripReportToDrive]:", error);
-    return { status: "error", message: "Couldn't link this report. Please try again." };
+  if (target.thread_id) {
+    const [{ error: threadError }, { error: threadReportsError }] = await Promise.all([
+      supabase.from("threads").update({ drive_id: driveId }).eq("id", target.thread_id),
+      supabase.from("trip_reports").update({ drive_id: driveId }).eq("thread_id", target.thread_id),
+    ]);
+    if (threadError || threadReportsError) {
+      console.error(
+        "SERVER ACTION ERROR [relinkTripReportToDrive link thread]:",
+        threadError ?? threadReportsError,
+      );
+      return { status: "error", message: "Couldn't link this thread. Please try again." };
+    }
+  } else {
+    const { error } = await supabase
+      .from("trip_reports")
+      .update({ drive_id: driveId })
+      .eq("id", reportId);
+    if (error) {
+      console.error("SERVER ACTION ERROR [relinkTripReportToDrive]:", error);
+      return { status: "error", message: "Couldn't link this report. Please try again." };
+    }
   }
 
   revalidatePath("/trip-reports");
@@ -456,8 +502,8 @@ export async function relinkTripReportToDrive(
   return {
     status: "success",
     message:
-      displaced && displaced.length > 0
-        ? `Linked — detached ${displaced.length} previously-linked report${displaced.length > 1 ? "s" : ""}.`
+      displacedRows.length > 0
+        ? `Linked — detached ${displacedRows.length} previously-linked report${displacedRows.length > 1 ? "s" : ""}.`
         : "Linked.",
   };
 }

@@ -13,6 +13,7 @@ import { RouteLogisticsTab } from "./tabs/RouteLogisticsTab";
 import { ConvoyRosterTab, type Registration } from "./tabs/ConvoyRosterTab";
 import { TripReportsTab } from "./tabs/TripReportsTab";
 import type { CleanupCandidateReport } from "@/components/club/DriveReportCleanupPanel";
+import { dedupeByThread } from "@/lib/tripReportThreadGrouping";
 import {
   CLEANUP_DATE_WINDOW_DAYS,
   extractTitleKeywords,
@@ -258,11 +259,22 @@ export default async function DriveDetailPage({
   let cleanupDateCandidates: CleanupCandidateReport[] = [];
   let cleanupKeywordCandidates: CleanupCandidateReport[] = [];
   if (isAdmin) {
+    // What the SELECT actually returns — dedupeByThread adds `replyCount`
+    // to produce the real CleanupCandidateReport shape the panel renders.
+    type RawCandidateRow = Omit<CleanupCandidateReport, "replyCount">;
+
     const CANDIDATE_FIELDS =
-      "id, report_text, created_at, " +
+      "id, report_text, created_at, thread_id, " +
       "author:profiles!trip_reports_author_id_fkey(username, full_name), " +
       "currentDrive:drives(id, title)";
     const notThisDrive = `drive_id.is.null,drive_id.neq.${id}`;
+    // The root-post refetch inside dedupeByThread doesn't re-apply this
+    // filter (it just wants "the thread's whole story," not just the post
+    // that happened to match), so a thread whose root is already correctly
+    // linked here — only a reply matched the date/keyword filter — needs
+    // filtering back out afterward or it'd show up as its own candidate.
+    const notAlreadyLinkedHere = (rows: CleanupCandidateReport[]) =>
+      rows.filter((r) => r.currentDrive?.id !== id);
 
     const driveDateMs = new Date(drive.drive_date).getTime();
     const windowFrom = new Date(
@@ -280,8 +292,10 @@ export default async function DriveDetailPage({
       .lte("created_at", windowTo)
       .order("created_at", { ascending: false })
       .limit(20)
-      .overrideTypes<CleanupCandidateReport[], { merge: false }>();
-    cleanupDateCandidates = dateRows ?? [];
+      .overrideTypes<RawCandidateRow[], { merge: false }>();
+    cleanupDateCandidates = notAlreadyLinkedHere(
+      await dedupeByThread(supabase, dateRows ?? [], CANDIDATE_FIELDS),
+    );
 
     const titleKeywords = extractTitleKeywords(drive.title).slice(0, 6);
     if (titleKeywords.length > 0) {
@@ -293,14 +307,18 @@ export default async function DriveDetailPage({
         .or(ilikeFilter)
         .order("created_at", { ascending: false })
         .limit(30)
-        .overrideTypes<CleanupCandidateReport[], { merge: false }>();
+        .overrideTypes<RawCandidateRow[], { merge: false }>();
 
-      cleanupKeywordCandidates = (keywordRows ?? [])
+      const scoredKeywordCandidates = (keywordRows ?? [])
         .map((report) => ({ report, hits: countKeywordHits(titleKeywords, report.report_text) }))
         .filter((entry) => entry.hits > 0)
         .sort((a, b) => b.hits - a.hits)
         .slice(0, 10)
         .map((entry) => entry.report);
+
+      cleanupKeywordCandidates = notAlreadyLinkedHere(
+        await dedupeByThread(supabase, scoredKeywordCandidates, CANDIDATE_FIELDS),
+      );
     }
   }
 

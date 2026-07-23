@@ -13,6 +13,7 @@ import {
   type UnlinkedReport,
   type CleanupCandidateDrive,
 } from "@/components/club/UnlinkedReportsCleanupPanel";
+import { dedupeByThread } from "@/lib/tripReportThreadGrouping";
 import {
   CLEANUP_DATE_WINDOW_DAYS,
   extractTitleKeywords,
@@ -135,24 +136,36 @@ export default async function TripReportsPage({
   // per report.
   let unlinkedReports: UnlinkedReport[] = [];
   if (isAdmin) {
+    // What the SELECT actually returns — dedupeByThread adds `replyCount`
+    // and collapses every unlinked reply back to its thread's root post, so
+    // a 5-post unlinked thread shows as one card instead of 5.
+    type RawUnlinkedRow = Omit<
+      UnlinkedReport,
+      "replyCount" | "dateCandidates" | "keywordCandidates"
+    >;
+
     const [{ data: unlinkedRows }, { data: allDrives }] = await Promise.all([
       supabase
         .from("trip_reports")
         .select(
-          "id, report_text, created_at, author:profiles!trip_reports_author_id_fkey(username, full_name)",
+          "id, report_text, created_at, thread_id, author:profiles!trip_reports_author_id_fkey(username, full_name)",
         )
         .is("drive_id", null)
         .order("created_at", { ascending: false })
-        .limit(50)
-        .overrideTypes<
-          { id: string; report_text: string; created_at: string; author: UnlinkedReport["author"] }[],
-          { merge: false }
-        >(),
+        .limit(200)
+        .overrideTypes<RawUnlinkedRow[], { merge: false }>(),
       supabase.from("drives").select("id, title, drive_date"),
     ]);
 
+    const dedupedUnlinked = await dedupeByThread(
+      supabase,
+      unlinkedRows ?? [],
+      "id, report_text, created_at, thread_id, " +
+        "author:profiles!trip_reports_author_id_fkey(username, full_name)",
+    );
+
     const drivesList = allDrives ?? [];
-    unlinkedReports = (unlinkedRows ?? []).map((report) => {
+    unlinkedReports = dedupedUnlinked.slice(0, 50).map((report) => {
       const dateCandidates: CleanupCandidateDrive[] = [];
       const keywordScored: { drive: CleanupCandidateDrive; hits: number }[] = [];
 

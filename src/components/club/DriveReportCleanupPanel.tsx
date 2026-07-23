@@ -1,4 +1,4 @@
-import { Wrench, CalendarDays, Tags, UserRound, Link2 as LinkedIcon } from "lucide-react";
+import { Wrench, CalendarDays, Tags, UserRound, Link2 as LinkedIcon, MessagesSquare } from "lucide-react";
 import { CollapsibleSection } from "@/components/club/CollapsibleSection";
 import { LinkTripReportButton } from "@/components/club/LinkTripReportButton";
 import { formatDate } from "@/lib/format";
@@ -8,12 +8,22 @@ export type CleanupCandidateReport = {
   id: string;
   report_text: string;
   created_at: string;
+  /** Not rendered directly — needed by dedupeByThread's generic constraint
+   * upstream (it groups raw candidate rows into one-per-thread before this
+   * type is ever built), kept here so the fetched row and the deduped
+   * output share one type instead of two near-identical ones. */
+  thread_id: string | null;
   author: { username: string; full_name: string | null } | null;
   /** The report's current link, if any — shown so an admin can see this
    * report will be pulled off its existing drive (if it has one) before
    * deciding to steal it for this one. Not the same thing this tool drops:
    * that's whatever's currently on *this* drive, not the report's own past. */
   currentDrive: { id: string; title: string } | null;
+  /** Other posts sharing this report's thread — always the thread's root
+   * post by the time this reaches the panel (deduped via dedupeByThread),
+   * so linking it moves every one of these replies too. 0 for an organic,
+   * non-threaded report. */
+  replyCount: number;
 };
 
 function CandidateReportRow({
@@ -34,6 +44,15 @@ function CandidateReportRow({
           </span>
           <span>·</span>
           <span>{formatDate(report.created_at)}</span>
+          {report.replyCount > 0 && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1">
+                <MessagesSquare className="h-3 w-3 shrink-0" />
+                +{report.replyCount} {report.replyCount === 1 ? "reply" : "replies"}
+              </span>
+            </>
+          )}
           {report.currentDrive && (
             <>
               <span>·</span>
@@ -107,7 +126,8 @@ export function DriveReportCleanupPanel({
       <div className="flex flex-col gap-4">
         <p className="text-xs text-charcoal-light/70">
           Reports from anywhere in the system that might actually belong to this drive.
-          Linking one here detaches any report(s) currently on this drive.
+          Linking a threaded report moves its whole thread (every reply comes with it);
+          linking here always detaches whatever thread or report currently occupies this drive.
         </p>
         <CandidateList
           title="Within 20 Days"
