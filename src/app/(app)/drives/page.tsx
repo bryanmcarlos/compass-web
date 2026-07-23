@@ -8,7 +8,7 @@ import { ArchiveDriveList, type ArchiveDrive } from "./ArchiveDriveList";
 import { SwipeToDeleteRow } from "@/components/club/SwipeToDeleteRow";
 import { formatDate, formatTime, formatConvoyStatus } from "@/lib/format";
 import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
-import { countsAsDriverSlot } from "@/lib/driveRoles";
+import { countsAsDriverSlot, getAvailableRoles } from "@/lib/driveRoles";
 
 const DRIVES_TABS = [
   { key: "upcoming", label: "Upcoming" },
@@ -113,11 +113,29 @@ function UpcomingCard({
   // — they're eligible display-wise for All Levels or a Newbie-only drive
   // (the full "no other active Newbie registration" rule only matters at
   // actual registration time, not for this list-card preview).
+  //
+  // A ranked member (1-5) needs both checks registerForDrive itself applies:
+  // the floor (current_rank >= target_rank), *and* getAvailableRoles
+  // actually returning a role. The floor alone isn't enough — a Rookie's
+  // rank clears a Newbie-only drive's floor (2 >= 1) but getAvailableRoles
+  // correctly returns no role for them there (too senior to Drive, too
+  // junior to Support), which the floor-only check used to miss entirely.
+  // isMit/hasSupervisingMarshal are safe to default false here: they only
+  // ever change *which* role an eligible Advanced/Marshal member gets, never
+  // turn a non-empty result empty, and ranks 4-5 are never locked regardless.
   const isLocked =
     userRank === null ||
     (userRank === 0
       ? !(drive.is_all_levels || (drive.allowed_ranks.length === 1 && drive.allowed_ranks[0] === "1"))
-      : userRank < drive.target_rank);
+      : userRank < drive.target_rank ||
+        getAvailableRoles({
+          currentRank: userRank,
+          isMit: false,
+          targetRank: drive.target_rank,
+          allowedRanks: drive.allowed_ranks.map(Number),
+          isAllLevels: drive.is_all_levels,
+          hasSupervisingMarshal: false,
+        }).length === 0);
   const requiredRank = CLUB_CONFIG.ranks.find((r) => r.level === drive.target_rank);
 
   const body = (
