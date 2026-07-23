@@ -209,6 +209,10 @@ const DRIVER_RANK_GROUPS: { key: RankName; label: string; emoji: string }[] = [
   { key: "Rookie", label: "ROOKIE DRIVERS", emoji: "🟡" },
   { key: "Intermediate", label: "INTERMEDIATE DRIVERS", emoji: "🟠" },
   { key: "Advanced", label: "ADVANCE DRIVERS", emoji: "🔵" },
+  // A Marshal can register as a plain Driver on someone else's drive (not
+  // just Lead/Support) — most often on older drives predating driver_rank,
+  // where the snapshot is null and this falls back to their current rank.
+  { key: "Marshal", label: "MARSHAL DRIVERS", emoji: "🔴" },
 ];
 
 function groupDriversByRank(drivers: Registration[]): Map<RankName, Registration[]> {
@@ -344,6 +348,31 @@ export function ConvoyRosterTab({
             </div>
           );
         })}
+
+        {/* Safety net for any rank bucket this drive's data resolves to that
+            isn't one of the fixed groups above (e.g. "General", the fallback
+            for a driver_rank snapshot with no matching current rank at all)
+            — registered drivers must never silently vanish from the roster
+            just because their rank doesn't match a known bucket. */}
+        {Array.from(driverGroups.entries())
+          .filter(([key, group]) => group.length > 0 && !DRIVER_RANK_GROUPS.some((g) => g.key === key))
+          .map(([key, group]) => (
+            <div key={key} className="flex flex-col gap-2">
+              <h4 className="text-xs font-semibold tracking-wide text-charcoal-light/60 uppercase">
+                ⚪ {key.toUpperCase()} DRIVERS ({group.length})
+              </h4>
+              <ul className="flex flex-col gap-2">
+                {group.map((r) => (
+                  <RegistrationRow
+                    key={r.id}
+                    registration={r}
+                    isSuperUser={isSuperUser}
+                    modalProps={modalProps}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
 
         {openSlotCount > 0 && (
           <div className="flex flex-col gap-2">
