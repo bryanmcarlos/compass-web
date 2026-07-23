@@ -95,10 +95,28 @@ export default async function ProfilePage() {
   }
   const equipmentQualifies = verifiedEquipmentCount >= requiredEquipmentCount;
 
-  const qualifies = nextRank !== null && approvedDrives >= threshold && equipmentQualifies;
+  // Previously ignored entirely — a member could see the promotion button
+  // with must-skills (including a gated final drive like "Intro to ROK")
+  // still incomplete, as long as drives + equipment were done.
+  const mustSkillsQualify = mustSkills.length === 0 || skillsUnlockedCount === mustSkills.length;
+
+  const qualifies =
+    nextRank !== null && approvedDrives >= threshold && equipmentQualifies && mustSkillsQualify;
   const progressPct = nextRank
     ? Math.min((approvedDrives / threshold) * 100, 100)
     : 100;
+
+  // A rank with its own `challenges` (today, just Rookie's R1/R2) has a
+  // dedicated review flow elsewhere (/profile/exams + /promotions-review) —
+  // the generic drives-only section below doesn't apply and would just be a
+  // redundant, dead-end second path for the same promotion.
+  const hasDedicatedExamTrack = Boolean(curriculum?.challenges);
+
+  const promotionLabel = nextRank
+    ? requiredEquipmentCount > 0
+      ? `Submit Equipment & Drive Verification for ${nextRank.title}`
+      : `Request Promotion to ${nextRank.title}`
+    : "";
 
   let hasPendingRequest = false;
   if (nextRank) {
@@ -165,6 +183,18 @@ export default async function ProfilePage() {
             <span>
               Register for a Newbie orientation drive and submit your trip
               report afterward to become a Newbie member.
+            </span>
+          </div>
+        ) : nextRank && hasDedicatedExamTrack ? (
+          <div className="flex items-start gap-2 rounded-lg bg-sand-light px-3 py-2.5 text-sm text-charcoal-light/90">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-charcoal-light/60" />
+            <span>
+              Complete your R1 and R2 challenges to progress to {nextRank.title} — track your
+              progress under{" "}
+              <Link href="/profile/exams" className="font-medium text-forest hover:underline">
+                Exams
+              </Link>
+              .
             </span>
           </div>
         ) : nextRank ? (
@@ -247,7 +277,7 @@ export default async function ProfilePage() {
             {qualifies ? (
               <RequestPromotionButton
                 targetRank={nextRank.level}
-                targetRankTitle={nextRank.title}
+                label={promotionLabel}
                 alreadyPending={hasPendingRequest}
               />
             ) : (
@@ -257,16 +287,23 @@ export default async function ProfilePage() {
                   {remaining > 0 && (
                     <>
                       Submit {remaining} more approved trip report
-                      {remaining === 1 ? "" : "s"} to unlock the {nextRank.title}{" "}
-                      examination request.
+                      {remaining === 1 ? "" : "s"} to progress toward {nextRank.title}.
                     </>
                   )}
-                  {remaining > 0 && !equipmentQualifies && " "}
+                  {remaining > 0 && !mustSkillsQualify && " "}
+                  {!mustSkillsQualify && (
+                    <>
+                      Complete {mustSkills.length - skillsUnlockedCount} more must-skill
+                      {mustSkills.length - skillsUnlockedCount === 1 ? "" : "s"} to progress toward{" "}
+                      {nextRank.title}.
+                    </>
+                  )}
+                  {(remaining > 0 || !mustSkillsQualify) && !equipmentQualifies && " "}
                   {!equipmentQualifies && (
                     <>
                       Verify {requiredEquipmentCount - verifiedEquipmentCount} more equipment
                       item{requiredEquipmentCount - verifiedEquipmentCount === 1 ? "" : "s"} to
-                      unlock the {nextRank.title} examination request.
+                      progress toward {nextRank.title}.
                     </>
                   )}
                 </span>

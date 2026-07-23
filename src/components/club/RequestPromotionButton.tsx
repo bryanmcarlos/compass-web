@@ -11,11 +11,13 @@ const initialState: RequestPromotionState = { status: "idle", message: null };
 
 export function RequestPromotionButton({
   targetRank,
-  targetRankTitle,
+  label,
   alreadyPending,
 }: {
   targetRank: number;
-  targetRankTitle: string;
+  /** Caller-computed — this rank may or may not have a real exam, so the
+   * button never assumes "Examination" itself. See profile/page.tsx. */
+  label: string;
   alreadyPending: boolean;
 }) {
   const [state, formAction, pending] = useActionState(
@@ -38,11 +40,7 @@ export function RequestPromotionButton({
         ) : (
           <ShieldCheck className="h-4 w-4" />
         )}
-        {pending
-          ? "Submitting…"
-          : isLocked
-            ? "Promotion Pending"
-            : `Request ${targetRankTitle} Examination`}
+        {pending ? "Submitting…" : isLocked ? "Promotion Pending" : label}
       </button>
 
       {state.message && (

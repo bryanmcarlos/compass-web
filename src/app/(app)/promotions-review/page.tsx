@@ -5,6 +5,10 @@ import { ErrorState, EmptyState } from "@/components/club/StateMessage";
 import { Tabs } from "@/components/club/Tabs";
 import { ExamReviewCard, type ExamSubmissionReview } from "@/components/club/ExamReviewCard";
 import { PromotionReadyCard, type PromotionReadyMember } from "@/components/club/PromotionReadyCard";
+import {
+  NewbiePromotionReadyCard,
+  type NewbiePromotionReadyMember,
+} from "@/components/club/NewbiePromotionReadyCard";
 import { COMPASS_RANKS } from "@/lib/constants";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -45,6 +49,85 @@ async function fetchPendingSubmissions(
         ? { name: row.buddy.full_name ?? row.buddy.username, avatarUrl: row.buddy.avatar_url }
         : null,
     }));
+}
+
+/** Mirrors fetchReadyMembers below exactly in shape, one stage earlier —
+ * Newbie -> Rookie has no exam, so must-skills (incl. the gated "Intro to
+ * ROK" drive) + equipment verification are the whole bar instead of R1/R2. */
+async function fetchReadyForRookie(supabase: SupabaseServerClient): Promise<NewbiePromotionReadyMember[]> {
+  const curriculum = COMPASS_RANKS[1];
+  const requiredCount = curriculum.requiredDrives ?? 0;
+  const gatedSkill = curriculum.gatedFinalMustSkill;
+  const requiredMustSkills = (curriculum.mustSkills ?? []).filter((s) => s !== gatedSkill);
+  const requiredEquipmentCount = curriculum.toolsRequired?.length ?? 0;
+
+  const { data: newbies } = await supabase
+    .from("profiles")
+    .select("id, username, full_name, avatar_url")
+    .eq("current_rank", 1);
+
+  if (!newbies || newbies.length === 0) return [];
+  const newbieIds = newbies.map((n) => n.id);
+
+  const [{ data: reportRows }, { data: equipmentRows }] = await Promise.all([
+    supabase
+      .from("trip_reports")
+      .select("author_id, drive:drives(must_skills_covered)")
+      .in("author_id", newbieIds)
+      .eq("is_approved", true)
+      .overrideTypes<
+        { author_id: string; drive: { must_skills_covered: string[] | null } | null }[],
+        { merge: false }
+      >(),
+    supabase
+      .from("equipment_verifications")
+      .select("user_id")
+      .in("user_id", newbieIds)
+      .eq("status", "verified")
+      .overrideTypes<{ user_id: string }[], { merge: false }>(),
+  ]);
+
+  const approvedCountByUser = new Map<string, number>();
+  const unlockedSkillsByUser = new Map<string, Set<string>>();
+  for (const row of reportRows ?? []) {
+    approvedCountByUser.set(row.author_id, (approvedCountByUser.get(row.author_id) ?? 0) + 1);
+    const skills = unlockedSkillsByUser.get(row.author_id) ?? new Set<string>();
+    for (const skill of row.drive?.must_skills_covered ?? []) {
+      skills.add(skill);
+    }
+    unlockedSkillsByUser.set(row.author_id, skills);
+  }
+
+  const verifiedEquipmentCountByUser = new Map<string, number>();
+  for (const row of equipmentRows ?? []) {
+    verifiedEquipmentCountByUser.set(row.user_id, (verifiedEquipmentCountByUser.get(row.user_id) ?? 0) + 1);
+  }
+
+  const ready: NewbiePromotionReadyMember[] = [];
+  for (const newbie of newbies) {
+    const approvedCount = approvedCountByUser.get(newbie.id) ?? 0;
+    const unlockedSkills = unlockedSkillsByUser.get(newbie.id) ?? new Set<string>();
+    const verifiedEquipmentCount = verifiedEquipmentCountByUser.get(newbie.id) ?? 0;
+
+    const meetsDriveCount = approvedCount >= requiredCount;
+    const meetsMustSkills = requiredMustSkills.every((s) => unlockedSkills.has(s));
+    const meetsEquipment = verifiedEquipmentCount >= requiredEquipmentCount;
+
+    if (meetsDriveCount && meetsMustSkills && meetsEquipment) {
+      ready.push({
+        userId: newbie.id,
+        name: newbie.full_name ?? newbie.username,
+        avatarUrl: newbie.avatar_url,
+        approvedCount,
+        requiredCount,
+        verifiedEquipmentCount,
+        requiredEquipmentCount,
+        introToRokDone: !gatedSkill || unlockedSkills.has(gatedSkill),
+      });
+    }
+  }
+
+  return ready;
 }
 
 async function fetchReadyMembers(supabase: SupabaseServerClient): Promise<PromotionReadyMember[]> {
@@ -154,20 +237,24 @@ export default async function PromotionsReviewPage({
     redirect("/");
   }
 
-  const activeTab = tab === "r2" ? "r2" : tab === "ready" ? "ready" : "r1";
+  const activeTab =
+    tab === "r1" ? "r1" : tab === "r2" ? "r2" : tab === "ready" ? "ready" : "nwb-ready";
 
   let error: string | null = null;
   let r1Submissions: ExamSubmissionReview[] = [];
   let r2Submissions: ExamSubmissionReview[] = [];
   let readyMembers: PromotionReadyMember[] = [];
+  let readyNewbies: NewbiePromotionReadyMember[] = [];
 
   try {
     if (activeTab === "r1") {
       r1Submissions = await fetchPendingSubmissions(supabase, "R1_CATCH_THE_FLAG");
     } else if (activeTab === "r2") {
       r2Submissions = await fetchPendingSubmissions(supabase, "R2_MAZE");
-    } else {
+    } else if (activeTab === "ready") {
       readyMembers = await fetchReadyMembers(supabase);
+    } else {
+      readyNewbies = await fetchReadyForRookie(supabase);
     }
   } catch (err) {
     console.error("PAGE ERROR [promotions-review]:", err);
@@ -175,6 +262,7 @@ export default async function PromotionsReviewPage({
   }
 
   const tabs = [
+    { key: "nwb-ready", label: "Ready for Rookie" },
     { key: "r1", label: "R1: Catch the Flag" },
     { key: "r2", label: "R2: Maze" },
     { key: "ready", label: "Ready for Intermediate" },
@@ -196,7 +284,7 @@ export default async function PromotionsReviewPage({
         </p>
       </header>
 
-      <Tabs tabs={tabs} defaultKey="r1" />
+      <Tabs tabs={tabs} defaultKey="nwb-ready" />
 
       {error ? (
         <ErrorState message={error} />
@@ -220,16 +308,30 @@ export default async function PromotionsReviewPage({
             ))}
           </div>
         )
-      ) : readyMembers.length === 0 ? (
+      ) : activeTab === "ready" ? (
+        readyMembers.length === 0 ? (
+          <EmptyState
+            icon={Award}
+            title="No one ready yet"
+            message="Once a Rookie clears their drives, must-skills, and both exams, they'll show up here."
+          />
+        ) : (
+          <div className="flex flex-col gap-4">
+            {readyMembers.map((m) => (
+              <PromotionReadyCard key={m.userId} member={m} />
+            ))}
+          </div>
+        )
+      ) : readyNewbies.length === 0 ? (
         <EmptyState
           icon={Award}
           title="No one ready yet"
-          message="Once a Rookie clears their drives, must-skills, and both exams, they'll show up here."
+          message="Once a Newbie clears their drives, must-skills (incl. Intro to ROK), and equipment verification, they'll show up here."
         />
       ) : (
         <div className="flex flex-col gap-4">
-          {readyMembers.map((m) => (
-            <PromotionReadyCard key={m.userId} member={m} />
+          {readyNewbies.map((m) => (
+            <NewbiePromotionReadyCard key={m.userId} member={m} />
           ))}
         </div>
       )}

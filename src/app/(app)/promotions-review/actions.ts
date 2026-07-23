@@ -72,6 +72,114 @@ export async function gradeExam(
 }
 
 /** Re-derives and re-verifies every promotion criterion server-side rather
+ * than trusting the "Ready for Rookie" list the button was clicked from —
+ * same reasoning as promoteToIntermediate below. Unlike Rookie -> Intermediate,
+ * this stage has no exam — must-skills (incl. the gated "Intro to ROK" drive)
+ * and equipment verification are the whole bar. */
+export async function promoteToRookie(userId: string): Promise<PromotionsReviewActionState> {
+  const supabase = await createClient();
+  const { error: authError } = await requireReviewer(supabase);
+  if (authError) {
+    return { status: "error", message: authError };
+  }
+
+  const { data: candidate } = await supabase
+    .from("profiles")
+    .select("current_rank, username, full_name")
+    .eq("id", userId)
+    .single();
+
+  if (!candidate || candidate.current_rank !== 1) {
+    return { status: "error", message: "This member isn't currently a Newbie." };
+  }
+
+  const curriculum = COMPASS_RANKS[1];
+  const requiredCount = curriculum.requiredDrives ?? 0;
+  const gatedSkill = curriculum.gatedFinalMustSkill;
+  const requiredMustSkills = (curriculum.mustSkills ?? []).filter((s) => s !== gatedSkill);
+  const requiredEquipmentCount = curriculum.toolsRequired?.length ?? 0;
+
+  const [{ count: approvedCount }, { data: reportRows }, { count: verifiedEquipmentCount }] =
+    await Promise.all([
+      supabase
+        .from("trip_reports")
+        .select("id", { count: "exact", head: true })
+        .eq("author_id", userId)
+        .eq("is_approved", true),
+      supabase
+        .from("trip_reports")
+        .select("drive:drives(must_skills_covered)")
+        .eq("author_id", userId)
+        .eq("is_approved", true)
+        .overrideTypes<{ drive: { must_skills_covered: string[] | null } | null }[], { merge: false }>(),
+      supabase
+        .from("equipment_verifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("status", "verified"),
+    ]);
+
+  const unlockedSkills = new Set<string>();
+  for (const report of reportRows ?? []) {
+    for (const skill of report.drive?.must_skills_covered ?? []) {
+      unlockedSkills.add(skill);
+    }
+  }
+
+  const meetsDriveCount = (approvedCount ?? 0) >= requiredCount;
+  const meetsMustSkills = requiredMustSkills.every((s) => unlockedSkills.has(s));
+  const meetsIntroToRok = !gatedSkill || unlockedSkills.has(gatedSkill);
+  const meetsEquipment = (verifiedEquipmentCount ?? 0) >= requiredEquipmentCount;
+
+  if (!meetsDriveCount || !meetsMustSkills || !meetsIntroToRok || !meetsEquipment) {
+    return {
+      status: "error",
+      message: "This member no longer meets every promotion requirement — refresh and check again.",
+    };
+  }
+
+  const { error: updateError } = await supabase
+    .from("profiles")
+    .update({ current_rank: 2 })
+    .eq("id", userId);
+
+  if (updateError) {
+    console.error("SERVER ACTION ERROR [promoteToRookie]:", updateError);
+    return { status: "error", message: "Couldn't finalize this promotion. Please try again." };
+  }
+
+  // Best-effort — a Newbie who never clicked the promotion-request button
+  // simply has no matching row, which is fine (see /profile — readiness is
+  // computed live here, the request row is just a courtesy signal).
+  const { error: requestError } = await supabase
+    .from("promotion_requests")
+    .update({ status: "Approved" })
+    .eq("candidate_id", userId)
+    .eq("target_rank", 2)
+    .eq("status", "Pending");
+  if (requestError) {
+    console.error("SERVER ACTION ERROR [promoteToRookie] (promotion_requests):", requestError);
+  }
+
+  const memberName = candidate.full_name ?? candidate.username;
+  const { error: announceError } = await supabase.from("announcements").insert({
+    title: `🎉 ${memberName} is now a Rookie!`,
+    content: `${memberName} completed all Newbie must-skills (including Intro to ROK), 5 drives, and equipment verification, earning promotion from Newbie to Rookie. Congratulations!`,
+    category: "Promotion",
+    target_rank: 2,
+    published_at: new Date().toISOString(),
+  });
+  if (announceError) {
+    console.error("SERVER ACTION ERROR [promoteToRookie] (announcement):", announceError);
+  }
+
+  revalidatePath("/promotions-review");
+  revalidatePath("/profile");
+
+  return { status: "success", message: `${memberName} promoted to Rookie.` };
+}
+
+/** Re-derives and re-verifies every promotion criterion server-side rather
  * than trusting the Tab 3 list the button was clicked from — same
  * reasoning as every other Server Action in this codebase never trusting
  * client-passed state for something this consequential. */
