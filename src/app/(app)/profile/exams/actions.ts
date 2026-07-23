@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+import { COMPASS_RANKS } from "@/lib/constants";
 
 export type ExamType = "R1_CATCH_THE_FLAG" | "R2_MAZE";
 
@@ -41,6 +42,39 @@ export async function submitExam(
 
   if (profile?.current_rank !== 2) {
     return { status: "error", message: "Only Rookies can submit R1/R2 exams." };
+  }
+
+  // Re-derive eligibility server-side — the client's "locked" state is a
+  // UI nicety, this is the real gate. Per the club roadmap, both R1 and R2
+  // unlock only after all 5 required drives and every regular must-skill
+  // are done (Intro to INT is deliberately excluded — that drive itself
+  // only unlocks after passing these two).
+  const curriculum = COMPASS_RANKS[2];
+  const requiredDrives = curriculum.requiredDrives ?? 0;
+  const gatedSkill = curriculum.gatedFinalMustSkill;
+  const regularMustSkills = (curriculum.mustSkills ?? []).filter((s) => s !== gatedSkill);
+
+  const { data: reportRows } = await supabase
+    .from("trip_reports")
+    .select("drive:drives(must_skills_covered)")
+    .eq("author_id", user.id)
+    .eq("is_approved", true)
+    .overrideTypes<{ drive: { must_skills_covered: string[] | null } | null }[], { merge: false }>();
+
+  const unlockedSkills = new Set<string>();
+  for (const row of reportRows ?? []) {
+    for (const skill of row.drive?.must_skills_covered ?? []) {
+      unlockedSkills.add(skill);
+    }
+  }
+  const meetsDriveCount = (reportRows?.length ?? 0) >= requiredDrives;
+  const meetsMustSkills = regularMustSkills.every((s) => unlockedSkills.has(s));
+
+  if (!meetsDriveCount || !meetsMustSkills) {
+    return {
+      status: "error",
+      message: "Complete your 5 required drives and must-skills before submitting this challenge.",
+    };
   }
 
   const trimmedNotes = notes.trim();

@@ -114,6 +114,40 @@ export default async function ExamsPage() {
         <ErrorState message="Couldn't load your exam submissions right now. Please try again shortly." />
       ) : (
         <div className="flex flex-col gap-4">
+          <section className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-charcoal">
+              Rookie Requirements: {Math.min(approvedDrives, requiredDrives)}/{requiredDrives} Drives
+            </h2>
+            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {mustSkills.map((skill) => {
+                const done = unlockedSkills.has(skill);
+                const isGated = skill === gatedSkill;
+                return (
+                  <li
+                    key={skill}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                      done
+                        ? "border-forest/30 bg-forest/5 text-forest-dark"
+                        : "border-sand bg-sand-light text-charcoal-light/70"
+                    }`}
+                  >
+                    {done ? (
+                      <CircleCheck className="h-4 w-4 shrink-0 text-forest" />
+                    ) : (
+                      <Circle className="h-4 w-4 shrink-0 text-charcoal-light/40" />
+                    )}
+                    {skill}
+                    {isGated && (
+                      <span className="ml-auto text-[10px] font-semibold text-charcoal-light/50 uppercase">
+                        after R1+R2
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+
           <ExamSubmissionForm
             examType="R1_CATCH_THE_FLAG"
             title="R1: Catch the Flag"
@@ -121,6 +155,7 @@ export default async function ExamsPage() {
             status={latestByType.get("R1_CATCH_THE_FLAG") ?? "not_submitted"}
             requiresBuddy
             buddyOptions={buddyOptions}
+            locked={!challengesUnlocked}
           />
           <ExamSubmissionForm
             examType="R2_MAZE"
@@ -129,7 +164,15 @@ export default async function ExamsPage() {
             status={latestByType.get("R2_MAZE") ?? "not_submitted"}
             requiresBuddy={false}
             buddyOptions={[]}
+            locked={!challengesUnlocked}
           />
+
+          {challengesUnlocked && !introToIntDone && (
+            <p className="text-center text-xs text-charcoal-light/70">
+              Pass both challenges above to unlock the Intro to INT drive — your Marshal will run
+              it once you have.
+            </p>
+          )}
         </div>
       )}
     </div>

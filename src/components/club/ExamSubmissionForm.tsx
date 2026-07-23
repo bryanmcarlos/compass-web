@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CircleCheck, CircleAlert, HourglassIcon, LoaderCircle, Send } from "lucide-react";
+import { CircleCheck, CircleAlert, HourglassIcon, LoaderCircle, Send, Lock } from "lucide-react";
 import { submitExam, type ExamType } from "@/app/(app)/profile/exams/actions";
 
 export type ExamStatus = "not_submitted" | "pending" | "passed" | "failed";
@@ -48,6 +48,7 @@ export function ExamSubmissionForm({
   status,
   requiresBuddy,
   buddyOptions,
+  locked,
 }: {
   examType: ExamType;
   title: string;
@@ -55,6 +56,11 @@ export function ExamSubmissionForm({
   status: ExamStatus;
   requiresBuddy: boolean;
   buddyOptions: BuddyOption[];
+  /** True until the 5 required drives and must-skills are done — matches
+   * the same gate submitExam re-checks server-side, so this is purely a
+   * clearer UI than a generic rejection message would be, not the real
+   * enforcement. */
+  locked: boolean;
 }) {
   const router = useRouter();
   const [notes, setNotes] = useState("");
@@ -63,7 +69,7 @@ export function ExamSubmissionForm({
   const [message, setMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
 
-  const canSubmit = status === "not_submitted" || status === "failed";
+  const canSubmit = !locked && (status === "not_submitted" || status === "failed");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -91,6 +97,13 @@ export function ExamSubmissionForm({
         </div>
         <StatusBadge status={status} />
       </div>
+
+      {locked && (status === "not_submitted" || status === "failed") && (
+        <p className="flex items-center gap-1.5 rounded-lg bg-sand-light px-3 py-2 text-xs text-charcoal-light/70">
+          <Lock className="h-3.5 w-3.5 shrink-0" />
+          Unlocks once your 5 drives and must-skills above are complete.
+        </p>
+      )}
 
       {canSubmit && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
