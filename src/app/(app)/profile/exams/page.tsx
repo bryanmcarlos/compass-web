@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Flag, CircleCheck, Circle } from "lucide-react";
+import { ArrowLeft, Flag, CircleCheck, Circle, Users } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { ErrorState } from "@/components/club/StateMessage";
 import { ExamSubmissionForm, type ExamStatus, type BuddyOption } from "@/components/club/ExamSubmissionForm";
+import { SoloGpsDriveForm } from "@/components/club/SoloGpsDriveForm";
 import { COMPASS_RANKS } from "@/lib/constants";
+
+const RANK_TITLES: Record<number, string> = { 2: "Rookie", 3: "Intermediate" };
+const REQUIRED_LEAD_DRIVES = 3;
 
 export default async function ExamsPage() {
   const supabase = await createClient();
@@ -23,35 +27,46 @@ export default async function ExamsPage() {
     .eq("id", user.id)
     .single();
 
-  // Only a Rookie has R1/R2 to submit at all — a member who navigates here
-  // directly at any other rank is silently sent back, same convention as a
-  // non-marshal hitting a review-only tab.
-  if (profile?.current_rank !== 2) {
+  // Only a Rookie (R1/R2) or an Intermediate member (I1/I2/I3 + solo GPS
+  // drives) has anything to submit here — anyone else is sent back, same
+  // convention as a non-marshal hitting a review-only tab.
+  const rank = profile?.current_rank;
+  if (rank !== 2 && rank !== 3) {
     redirect("/profile");
   }
 
-  const [{ data: submissions, error }, { data: memberRows }, { data: reportRows }] = await Promise.all([
-    supabase
-      .from("exam_submissions")
-      .select("exam_type, status")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .overrideTypes<{ exam_type: "R1_CATCH_THE_FLAG" | "R2_MAZE"; status: ExamStatus }[], { merge: false }>(),
-    supabase
-      .from("profiles")
-      .select("id, username, full_name")
-      .eq("is_disabled", false)
-      .neq("id", user.id)
-      .order("username"),
-    // Same signal used everywhere else this app tracks progression —
-    // approved trip reports and the must-skills their drives covered.
-    supabase
-      .from("trip_reports")
-      .select("drive:drives(must_skills_covered)")
-      .eq("author_id", user.id)
-      .eq("is_approved", true)
-      .overrideTypes<{ drive: { must_skills_covered: string[] | null } | null }[], { merge: false }>(),
-  ]);
+  const [{ data: submissions, error }, { data: memberRows }, { data: reportRows }, { count: leadDriveCount }] =
+    await Promise.all([
+      supabase
+        .from("exam_submissions")
+        .select("exam_type, status")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .overrideTypes<{ exam_type: string; status: ExamStatus }[], { merge: false }>(),
+      // Only R1 needs a buddy — fetched regardless of rank for simplicity,
+      // unused (and harmless) when rank 3 renders I1/I2/I3 instead.
+      supabase
+        .from("profiles")
+        .select("id, username, full_name")
+        .eq("is_disabled", false)
+        .neq("id", user.id)
+        .order("username"),
+      // Same signal used everywhere else this app tracks progression —
+      // approved trip reports and the must-skills their drives covered.
+      supabase
+        .from("trip_reports")
+        .select("drive:drives(must_skills_covered)")
+        .eq("author_id", user.id)
+        .eq("is_approved", true)
+        .overrideTypes<{ drive: { must_skills_covered: string[] | null } | null }[], { merge: false }>(),
+      // "3 Intro Lead Drives" needs no submission UI at all — it's just
+      // however many times this member has already registered as Lead.
+      supabase
+        .from("drive_registrations")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("role", "Lead"),
+    ]);
 
   const latestByType = new Map<string, ExamStatus>();
   for (const row of submissions ?? []) {
@@ -59,17 +74,20 @@ export default async function ExamsPage() {
       latestByType.set(row.exam_type, row.status);
     }
   }
+  const soloGpsSubmissions = (submissions ?? []).filter((s) => s.exam_type === "SOLO_GPS_DRIVE");
+  const soloGpsPassedCount = soloGpsSubmissions.filter((s) => s.status === "passed").length;
+  const soloGpsHasPending = soloGpsSubmissions.some((s) => s.status === "pending");
 
   const buddyOptions: BuddyOption[] = (memberRows ?? []).map((m) => ({
     id: m.id,
     name: m.full_name ?? m.username,
   }));
 
-  // R1/R2 are only unlocked once the 5 required drives and every regular
-  // must-skill are done, per the club roadmap — "Intro to INT" is
-  // deliberately excluded here, since that drive itself only unlocks
-  // *after* passing both challenges (see gatedFinalMustSkill below).
-  const curriculum = COMPASS_RANKS[2];
+  // Challenges are only unlocked once the required drives and every
+  // regular must-skill are done, per the club roadmap — a rank's own
+  // gatedFinalMustSkill (if any) is deliberately excluded here, since that
+  // drive itself only unlocks *after* passing the challenges below.
+  const curriculum = COMPASS_RANKS[rank as 2 | 3];
   const requiredDrives = curriculum.requiredDrives ?? 0;
   const approvedDrives = (reportRows ?? []).length;
   const unlockedSkills = new Set<string>();
@@ -84,7 +102,7 @@ export default async function ExamsPage() {
   const meetsDriveCount = approvedDrives >= requiredDrives;
   const meetsMustSkills = regularMustSkills.every((s) => unlockedSkills.has(s));
   const challengesUnlocked = meetsDriveCount && meetsMustSkills;
-  const introToIntDone = !gatedSkill || unlockedSkills.has(gatedSkill);
+  const gatedSkillDone = !gatedSkill || unlockedSkills.has(gatedSkill);
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
@@ -101,12 +119,13 @@ export default async function ExamsPage() {
             <Flag className="h-5 w-5" />
           </span>
           <h1 className="text-2xl font-bold tracking-tight text-charcoal">
-            Rookie Challenges
+            {RANK_TITLES[rank]} Challenges
           </h1>
         </div>
         <p className="text-sm text-charcoal-light/80">
-          Pass both R1 and R2 to unlock the Intro to INT drive and finalize
-          your promotion to Intermediate.
+          {rank === 2
+            ? "Pass both R1 and R2 to unlock the Intro to INT drive and finalize your promotion to Intermediate."
+            : "Pass I1, I2, and I3, log your 3 solo GPS drives, and lead 3 drives to finalize your promotion to Advanced."}
         </p>
       </header>
 
@@ -116,7 +135,7 @@ export default async function ExamsPage() {
         <div className="flex flex-col gap-4">
           <section className="flex flex-col gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-charcoal">
-              Rookie Requirements: {Math.min(approvedDrives, requiredDrives)}/{requiredDrives} Drives
+              {RANK_TITLES[rank]} Requirements: {Math.min(approvedDrives, requiredDrives)}/{requiredDrives} Drives
             </h2>
             <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {mustSkills.map((skill) => {
@@ -139,7 +158,7 @@ export default async function ExamsPage() {
                     {skill}
                     {isGated && (
                       <span className="ml-auto text-[10px] font-semibold text-charcoal-light/50 uppercase">
-                        after R1+R2
+                        after challenges
                       </span>
                     )}
                   </li>
@@ -148,30 +167,87 @@ export default async function ExamsPage() {
             </ul>
           </section>
 
-          <ExamSubmissionForm
-            examType="R1_CATCH_THE_FLAG"
-            title="R1: Catch the Flag"
-            description="Buddy-system challenge — mention your buddy's name in your challenge post, then name them here."
-            status={latestByType.get("R1_CATCH_THE_FLAG") ?? "not_submitted"}
-            requiresBuddy
-            buddyOptions={buddyOptions}
-            locked={!challengesUnlocked}
-          />
-          <ExamSubmissionForm
-            examType="R2_MAZE"
-            title="R2: Maze"
-            description="Individual challenge."
-            status={latestByType.get("R2_MAZE") ?? "not_submitted"}
-            requiresBuddy={false}
-            buddyOptions={[]}
-            locked={!challengesUnlocked}
-          />
+          {rank === 2 ? (
+            <>
+              <ExamSubmissionForm
+                examType="R1_CATCH_THE_FLAG"
+                title="R1: Catch the Flag"
+                description="Buddy-system challenge — mention your buddy's name in your challenge post, then name them here."
+                status={latestByType.get("R1_CATCH_THE_FLAG") ?? "not_submitted"}
+                requiresBuddy
+                buddyOptions={buddyOptions}
+                locked={!challengesUnlocked}
+              />
+              <ExamSubmissionForm
+                examType="R2_MAZE"
+                title="R2: Maze"
+                description="Individual challenge."
+                status={latestByType.get("R2_MAZE") ?? "not_submitted"}
+                requiresBuddy={false}
+                buddyOptions={[]}
+                locked={!challengesUnlocked}
+              />
 
-          {challengesUnlocked && !introToIntDone && (
-            <p className="text-center text-xs text-charcoal-light/70">
-              Pass both challenges above to unlock the Intro to INT drive — your Marshal will run
-              it once you have.
-            </p>
+              {challengesUnlocked && !gatedSkillDone && (
+                <p className="text-center text-xs text-charcoal-light/70">
+                  Pass both challenges above to unlock the Intro to INT drive — your Marshal will
+                  run it once you have.
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <ExamSubmissionForm
+                examType="I1_POINT_AND_SHOOT"
+                title="I1: Point & Shoot"
+                description="Solo day drive focusing on compass bearing."
+                status={latestByType.get("I1_POINT_AND_SHOOT") ?? "not_submitted"}
+                requiresBuddy={false}
+                buddyOptions={[]}
+                locked={!challengesUnlocked}
+              />
+              <ExamSubmissionForm
+                examType="I2_NIGHT_RECON"
+                title="I2: Night Recon"
+                description="Solo night drive focusing on GPS navigation."
+                status={latestByType.get("I2_NIGHT_RECON") ?? "not_submitted"}
+                requiresBuddy={false}
+                buddyOptions={[]}
+                locked={!challengesUnlocked}
+              />
+              <ExamSubmissionForm
+                examType="I3_KING_OF_THE_HILL"
+                title="I3: King of the Hill"
+                description="Located in Liwa."
+                status={latestByType.get("I3_KING_OF_THE_HILL") ?? "not_submitted"}
+                requiresBuddy={false}
+                buddyOptions={[]}
+                locked={!challengesUnlocked}
+              />
+
+              <SoloGpsDriveForm
+                passedCount={soloGpsPassedCount}
+                hasPending={soloGpsHasPending}
+                locked={!challengesUnlocked}
+              />
+
+              <section className="flex items-center justify-between gap-3 rounded-2xl border border-sand bg-off-white p-5 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-forest" />
+                  <span className="text-sm font-semibold text-charcoal">3 Intro Lead Drives</span>
+                </div>
+                <span
+                  className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    (leadDriveCount ?? 0) >= REQUIRED_LEAD_DRIVES
+                      ? "bg-forest/10 text-forest"
+                      : "bg-sand-light text-charcoal-light/70"
+                  }`}
+                >
+                  {(leadDriveCount ?? 0) >= REQUIRED_LEAD_DRIVES && <CircleCheck className="h-3.5 w-3.5" />}
+                  {Math.min(leadDriveCount ?? 0, REQUIRED_LEAD_DRIVES)}/{REQUIRED_LEAD_DRIVES} Led
+                </span>
+              </section>
+            </>
           )}
         </div>
       )}

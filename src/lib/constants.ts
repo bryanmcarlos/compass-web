@@ -294,3 +294,12 @@ export const COMPASS_RANKS: Record<0 | 1 | 2 | 3 | 4 | 5, RankCurriculum> = {
  * under its own name for the Equipment Portal / Marshal Verification code
  * to depend on without reaching into the rank curriculum object directly. */
 export const MANDATORY_EQUIPMENT: string[] = COMPASS_RANKS[1].toolsRequired ?? [];
+
+/** "3 Solo GPS Proficiency Drives" (Intermediate -> Advanced) is a
+ * repeatable requirement, not a single pass/fail — how many *passed*
+ * SOLO_GPS_DRIVE exam_submissions rows are needed. Lives here rather than
+ * in profile/exams/actions.ts because that file has "use server" and every
+ * export from a Server Actions module must be an async function; a plain
+ * constant export breaks its whole export contract (confirmed: Next's
+ * build fails with "module has no exports at all" if you try). */
+export const SOLO_GPS_DRIVES_REQUIRED = 3;

@@ -295,3 +295,289 @@ export async function promoteToIntermediate(userId: string): Promise<PromotionsR
 
   return { status: "success", message: `${memberName} promoted to Intermediate.` };
 }
+
+const REQUIRED_SOLO_GPS_DRIVES = 3;
+const REQUIRED_LEAD_DRIVES = 3;
+
+/** Re-derives and re-verifies every promotion criterion server-side rather
+ * than trusting the "Ready for Advanced" list the button was clicked from
+ * — same reasoning as promoteToIntermediate above. No gated final
+ * must-skill for this stage (COMPASS_RANKS[3] doesn't define one), so
+ * unlike Newbie/Rookie there's no separate "waiting on one more drive"
+ * case here. */
+export async function promoteToAdvanced(userId: string): Promise<PromotionsReviewActionState> {
+  const supabase = await createClient();
+  const { error: authError } = await requireReviewer(supabase);
+  if (authError) {
+    return { status: "error", message: authError };
+  }
+
+  const { data: candidate } = await supabase
+    .from("profiles")
+    .select("current_rank, username, full_name")
+    .eq("id", userId)
+    .single();
+
+  if (!candidate || candidate.current_rank !== 3) {
+    return { status: "error", message: "This member isn't currently Intermediate." };
+  }
+
+  const curriculum = COMPASS_RANKS[3];
+  const requiredCount = curriculum.requiredDrives ?? 0;
+  const requiredMustSkills = curriculum.mustSkills ?? [];
+
+  const [{ count: approvedCount }, { data: reportRows }, { data: examRows }, { count: leadDriveCount }] =
+    await Promise.all([
+      supabase
+        .from("trip_reports")
+        .select("id", { count: "exact", head: true })
+        .eq("author_id", userId)
+        .eq("is_approved", true),
+      supabase
+        .from("trip_reports")
+        .select("drive:drives(must_skills_covered)")
+        .eq("author_id", userId)
+        .eq("is_approved", true)
+        .overrideTypes<{ drive: { must_skills_covered: string[] | null } | null }[], { merge: false }>(),
+      supabase
+        .from("exam_submissions")
+        .select("exam_type, status, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .overrideTypes<{ exam_type: string; status: string; created_at: string }[], { merge: false }>(),
+      supabase
+        .from("drive_registrations")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("role", "Lead"),
+    ]);
+
+  const unlockedSkills = new Set<string>();
+  for (const report of reportRows ?? []) {
+    for (const skill of report.drive?.must_skills_covered ?? []) {
+      unlockedSkills.add(skill);
+    }
+  }
+
+  const latestSingleExamStatus = new Map<string, string>();
+  let soloGpsPassedCount = 0;
+  for (const row of examRows ?? []) {
+    if (row.exam_type === "SOLO_GPS_DRIVE") {
+      if (row.status === "passed") soloGpsPassedCount++;
+      continue;
+    }
+    if (!latestSingleExamStatus.has(row.exam_type)) {
+      latestSingleExamStatus.set(row.exam_type, row.status);
+    }
+  }
+
+  const meetsDriveCount = (approvedCount ?? 0) >= requiredCount;
+  const meetsMustSkills = requiredMustSkills.every((s) => unlockedSkills.has(s));
+  const meetsChallenges =
+    latestSingleExamStatus.get("I1_POINT_AND_SHOOT") === "passed" &&
+    latestSingleExamStatus.get("I2_NIGHT_RECON") === "passed" &&
+    latestSingleExamStatus.get("I3_KING_OF_THE_HILL") === "passed";
+  const meetsSoloGps = soloGpsPassedCount >= REQUIRED_SOLO_GPS_DRIVES;
+  const meetsLeadDrives = (leadDriveCount ?? 0) >= REQUIRED_LEAD_DRIVES;
+
+  if (!meetsDriveCount || !meetsMustSkills || !meetsChallenges || !meetsSoloGps || !meetsLeadDrives) {
+    return {
+      status: "error",
+      message: "This member no longer meets every promotion requirement — refresh and check again.",
+    };
+  }
+
+  const { error: updateError } = await supabase
+    .from("profiles")
+    .update({ current_rank: 4 })
+    .eq("id", userId);
+
+  if (updateError) {
+    console.error("SERVER ACTION ERROR [promoteToAdvanced]:", updateError);
+    return { status: "error", message: "Couldn't finalize this promotion. Please try again." };
+  }
+
+  const { error: requestError } = await supabase
+    .from("promotion_requests")
+    .update({ status: "Approved" })
+    .eq("candidate_id", userId)
+    .eq("target_rank", 4)
+    .eq("status", "Pending");
+  if (requestError) {
+    console.error("SERVER ACTION ERROR [promoteToAdvanced] (promotion_requests):", requestError);
+  }
+
+  const memberName = candidate.full_name ?? candidate.username;
+  const { error: announceError } = await supabase.from("announcements").insert({
+    title: `🎉 ${memberName} is now Advanced!`,
+    content: `${memberName} passed I1, I2, and I3, logged 3 solo GPS drives, and led 3 drives, earning promotion from Intermediate to Advanced. Congratulations!`,
+    category: "Promotion",
+    target_rank: 4,
+    published_at: new Date().toISOString(),
+  });
+  if (announceError) {
+    console.error("SERVER ACTION ERROR [promoteToAdvanced] (announcement):", announceError);
+  }
+
+  revalidatePath("/promotions-review");
+  revalidatePath("/profile");
+
+  return { status: "success", message: `${memberName} promoted to Advanced.` };
+}
+
+export type MarshalshipAttestationField =
+  | "marshalship_training_endorsed"
+  | "marshalship_vote_passed"
+  | "marshalship_final_assessment_passed";
+
+const VALID_ATTESTATION_FIELDS: MarshalshipAttestationField[] = [
+  "marshalship_training_endorsed",
+  "marshalship_vote_passed",
+  "marshalship_final_assessment_passed",
+];
+
+/** A Marshal/Admin's own record that a real-world governance step happened
+ * — Marshalship Training endorsement, the Marshals Vote, the final
+ * Marshalship NWB Drive assessment. The app has no way to observe any of
+ * these; this is deliberately just an attestation, not something inferred
+ * from other data. */
+export async function setMarshalshipAttestation(
+  userId: string,
+  field: MarshalshipAttestationField,
+  value: boolean,
+): Promise<PromotionsReviewActionState> {
+  const supabase = await createClient();
+  const { error: authError } = await requireReviewer(supabase);
+  if (authError) {
+    return { status: "error", message: authError };
+  }
+
+  if (!VALID_ATTESTATION_FIELDS.includes(field)) {
+    return { status: "error", message: "Invalid attestation field." };
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ [field]: value })
+    .eq("id", userId);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [setMarshalshipAttestation]:", error);
+    return { status: "error", message: "Couldn't save that. Please try again." };
+  }
+
+  revalidatePath("/promotions-review");
+
+  return { status: "success", message: "Saved." };
+}
+
+/** Re-derives and re-verifies server-side, same as every other promotion
+ * action — but this is the one stage where the criteria are partly
+ * subjective attestations rather than fully objective data. The objective
+ * part (supervised leads + must-skills) is re-checked the same way as
+ * every other rank; the 3 attestation booleans are re-read fresh from
+ * `profiles` rather than trusted from whatever the client last rendered,
+ * so a checkbox someone unchecked a second before this was clicked can't
+ * slip through. */
+export async function promoteToMarshal(userId: string): Promise<PromotionsReviewActionState> {
+  const supabase = await createClient();
+  const { error: authError } = await requireReviewer(supabase);
+  if (authError) {
+    return { status: "error", message: authError };
+  }
+
+  const { data: candidate } = await supabase
+    .from("profiles")
+    .select(
+      "current_rank, username, full_name, marshalship_training_endorsed, marshalship_vote_passed, marshalship_final_assessment_passed",
+    )
+    .eq("id", userId)
+    .single();
+
+  if (!candidate || candidate.current_rank !== 4) {
+    return { status: "error", message: "This member isn't currently Advanced." };
+  }
+
+  if (
+    !candidate.marshalship_training_endorsed ||
+    !candidate.marshalship_vote_passed ||
+    !candidate.marshalship_final_assessment_passed
+  ) {
+    return {
+      status: "error",
+      message: "All 3 marshalship attestations must be checked before finalizing.",
+    };
+  }
+
+  const curriculum = COMPASS_RANKS[4];
+  const requiredCount = curriculum.requiredSupervisedLeads ?? 0;
+  const requiredMustSkills = curriculum.mustSkills ?? [];
+
+  const [{ count: approvedCount }, { data: reportRows }] = await Promise.all([
+    supabase
+      .from("trip_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("author_id", userId)
+      .eq("is_approved", true),
+    supabase
+      .from("trip_reports")
+      .select("drive:drives(must_skills_covered)")
+      .eq("author_id", userId)
+      .eq("is_approved", true)
+      .overrideTypes<{ drive: { must_skills_covered: string[] | null } | null }[], { merge: false }>(),
+  ]);
+
+  const unlockedSkills = new Set<string>();
+  for (const report of reportRows ?? []) {
+    for (const skill of report.drive?.must_skills_covered ?? []) {
+      unlockedSkills.add(skill);
+    }
+  }
+
+  const meetsDriveCount = (approvedCount ?? 0) >= requiredCount;
+  const meetsMustSkills = requiredMustSkills.every((s) => unlockedSkills.has(s));
+
+  if (!meetsDriveCount || !meetsMustSkills) {
+    return {
+      status: "error",
+      message: "This member no longer meets every promotion requirement — refresh and check again.",
+    };
+  }
+
+  const { error: updateError } = await supabase
+    .from("profiles")
+    .update({ current_rank: 5 })
+    .eq("id", userId);
+
+  if (updateError) {
+    console.error("SERVER ACTION ERROR [promoteToMarshal]:", updateError);
+    return { status: "error", message: "Couldn't finalize this promotion. Please try again." };
+  }
+
+  const { error: requestError } = await supabase
+    .from("promotion_requests")
+    .update({ status: "Approved" })
+    .eq("candidate_id", userId)
+    .eq("target_rank", 5)
+    .eq("status", "Pending");
+  if (requestError) {
+    console.error("SERVER ACTION ERROR [promoteToMarshal] (promotion_requests):", requestError);
+  }
+
+  const memberName = candidate.full_name ?? candidate.username;
+  const { error: announceError } = await supabase.from("announcements").insert({
+    title: `🎉 ${memberName} is now a Marshal!`,
+    content: `${memberName} completed Marshalship Training, passed the Marshals Vote, and cleared the final Marshalship NWB Drive assessment, earning promotion from Advanced to Marshal. Congratulations!`,
+    category: "Promotion",
+    target_rank: 5,
+    published_at: new Date().toISOString(),
+  });
+  if (announceError) {
+    console.error("SERVER ACTION ERROR [promoteToMarshal] (announcement):", announceError);
+  }
+
+  revalidatePath("/promotions-review");
+  revalidatePath("/profile");
+
+  return { status: "success", message: `${memberName} promoted to Marshal.` };
+}

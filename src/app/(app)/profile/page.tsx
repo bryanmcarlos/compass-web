@@ -185,18 +185,6 @@ export default async function ProfilePage() {
               report afterward to become a Newbie member.
             </span>
           </div>
-        ) : nextRank && hasDedicatedExamTrack ? (
-          <div className="flex items-start gap-2 rounded-lg bg-sand-light px-3 py-2.5 text-sm text-charcoal-light/90">
-            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-charcoal-light/60" />
-            <span>
-              Complete your R1 and R2 challenges to progress to {nextRank.title} — track your
-              progress under{" "}
-              <Link href="/profile/exams" className="font-medium text-forest hover:underline">
-                Exams
-              </Link>
-              .
-            </span>
-          </div>
         ) : nextRank ? (
           <>
             <p className="text-sm font-semibold text-charcoal">
@@ -274,7 +262,18 @@ export default async function ProfilePage() {
               </div>
             )}
 
-            {qualifies ? (
+            {hasDedicatedExamTrack ? (
+              // R1/R2 (Rookie) and I1/I2/I3 + solo drives (Intermediate)
+              // have their own dedicated review flow with its own
+              // locked/unlocked determination — this link is always shown
+              // rather than duplicating that logic here.
+              <Link
+                href="/profile/exams"
+                className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-off-white transition-colors hover:brightness-90"
+              >
+                Go to {currentRank.title} Challenges
+              </Link>
+            ) : qualifies ? (
               <RequestPromotionButton
                 targetRank={nextRank.level}
                 label={promotionLabel}
