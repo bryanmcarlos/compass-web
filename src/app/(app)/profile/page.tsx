@@ -211,7 +211,7 @@ export default async function ProfilePage() {
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
               <span className="font-medium text-charcoal">
                 {Math.min(approvedDrives, threshold)} / {threshold}{" "}
-                {metricLabel} to qualify for {nextRank.title} Examination
+                {metricLabel} to qualify for {nextRank.title} Promotion
               </span>
             </div>
             <div className="h-3 w-full rounded-full bg-sand-light">

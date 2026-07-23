@@ -290,9 +290,13 @@ export async function requestPromotion(
     });
 
   if (insertError) {
+    console.error("SERVER ACTION ERROR [requestPromotion]:", insertError);
     return {
       status: "error",
-      message: "Couldn't submit your promotion request. Please try again.",
+      message:
+        insertError.code === "42501"
+          ? "Couldn't submit — the database rejected this (missing RLS policy on promotion_requests, not a client bug). Ask an admin to check."
+          : "Couldn't submit your promotion request. Please try again.",
     };
   }
 
@@ -300,6 +304,6 @@ export async function requestPromotion(
 
   return {
     status: "success",
-    message: "Promotion request submitted! A marshal will review your examination.",
+    message: "Promotion request submitted! A marshal will review it.",
   };
 }
