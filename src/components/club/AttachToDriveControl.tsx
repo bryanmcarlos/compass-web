@@ -19,19 +19,25 @@ export type PastDrive = {
   title: string;
   drive_date: string;
   lead_marshal: { username: string; full_name: string | null } | null;
+  /** Was the report's author actually registered on this drive? A Marshal
+   * gets rejected server-side for picking a drive where this is false; an
+   * Admin can override, but sees a confirm warning first. */
+  authorRegistered: boolean;
 };
 
-/** Restricted to the report's author or a Super Admin — the page rendering
- * this already gates on that before mounting it; the Server Action
- * re-checks it independently regardless. */
+/** Restricted to Marshals and Admins — the page rendering this already
+ * gates on that before mounting it; the Server Action re-checks it (and the
+ * registration requirement below) independently regardless. */
 export function AttachToDriveControl({
   reportId,
   currentDriveId,
   pastDrives,
+  isAdmin,
 }: {
   reportId: string;
   currentDriveId: string | null;
   pastDrives: PastDrive[];
+  isAdmin: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -47,6 +53,15 @@ export function AttachToDriveControl({
   }, [pastDrives, query]);
 
   function handleLink(driveId: string | null) {
+    if (driveId && isAdmin) {
+      const candidate = pastDrives.find((d) => d.id === driveId);
+      if (candidate && !candidate.authorRegistered) {
+        const confirmed = window.confirm(
+          "This report's author wasn't registered on that drive. Attach it anyway?",
+        );
+        if (!confirmed) return;
+      }
+    }
     setMessage(null);
     startTransition(async () => {
       const result = await linkTripReportToDrive(reportId, driveId);
@@ -132,6 +147,9 @@ export function AttachToDriveControl({
                         <UserRound className="h-3 w-3" />
                         {drive.lead_marshal.full_name ?? drive.lead_marshal.username}
                       </span>
+                    )}
+                    {!drive.authorRegistered && (
+                      <span className="font-semibold text-error">Not registered</span>
                     )}
                   </span>
                 </button>

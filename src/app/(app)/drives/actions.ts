@@ -566,6 +566,131 @@ export async function deleteDrive(driveId: string): Promise<DeleteDriveState> {
   return { status: "success", message: "Drive deleted." };
 }
 
+export type DriveQuickActionState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+};
+
+async function requireMarshalOrAdmin() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { supabase, user: null, isMarshal: false, isAdmin: false };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_marshal, is_admin")
+    .eq("id", user.id)
+    .single();
+
+  return {
+    supabase,
+    user,
+    isMarshal: profile?.is_marshal ?? false,
+    isAdmin: profile?.is_admin ?? false,
+  };
+}
+
+/** Quick-action toggle from the Marshal Logistics Control Panel — a
+ * standalone flip, not routed through the full updateDrive form. Reversible
+ * by design: a Marshal can reopen if they closed by mistake or a slot frees
+ * up, without needing to touch the drive's actual `status`. */
+export async function setRegistrationClosed(
+  driveId: string,
+  closed: boolean,
+): Promise<DriveQuickActionState> {
+  const { supabase, user, isMarshal, isAdmin } = await requireMarshalOrAdmin();
+
+  if (!user) {
+    return { status: "error", message: "You need to be signed in." };
+  }
+  if (!isMarshal && !isAdmin) {
+    return { status: "error", message: "Only Marshals and Admins can manage registration." };
+  }
+
+  const { error } = await supabase
+    .from("drives")
+    .update({ registration_closed: closed })
+    .eq("id", driveId);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [setRegistrationClosed]:", error);
+    return { status: "error", message: "Couldn't update registration status. Please try again." };
+  }
+
+  revalidatePath(`/drives/${driveId}`);
+  revalidatePath("/drives");
+
+  return {
+    status: "success",
+    message: closed ? "Registration closed." : "Registration reopened.",
+  };
+}
+
+/** Marshals can only complete a drive that has actually finished — the
+ * whole point of the check is that a Marshal shouldn't be able to mark
+ * "Completed" on something that hasn't happened yet. Admins can override
+ * with `force`, but still only via this same server-verified path (the
+ * client shows its own confirm prompt first — see MarkDriveCompletedButton
+ * — this is the real enforcement, not the confirm dialog). */
+export async function markDriveCompleted(
+  driveId: string,
+  force: boolean,
+): Promise<DriveQuickActionState> {
+  const { supabase, user, isMarshal, isAdmin } = await requireMarshalOrAdmin();
+
+  if (!user) {
+    return { status: "error", message: "You need to be signed in." };
+  }
+  if (!isMarshal && !isAdmin) {
+    return { status: "error", message: "Only Marshals and Admins can complete a drive." };
+  }
+
+  const { data: drive, error: fetchError } = await supabase
+    .from("drives")
+    .select("drive_date, drive_end_time")
+    .eq("id", driveId)
+    .single();
+
+  if (fetchError || !drive) {
+    return { status: "error", message: "Couldn't find that drive." };
+  }
+
+  const finishAt = new Date(
+    drive.drive_end_time ? `${drive.drive_date}T${drive.drive_end_time}` : `${drive.drive_date}T23:59:59`,
+  );
+  const hasFinished = new Date() >= finishAt;
+
+  if (!hasFinished && !(isAdmin && force)) {
+    return {
+      status: "error",
+      message: isAdmin
+        ? "This drive hasn't finished yet — pass force to override."
+        : "This drive hasn't finished yet. Only an Admin can mark it completed early.",
+    };
+  }
+
+  const { error } = await supabase
+    .from("drives")
+    .update({ status: "Completed" })
+    .eq("id", driveId);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [markDriveCompleted]:", error);
+    return { status: "error", message: "Couldn't mark this drive completed. Please try again." };
+  }
+
+  revalidatePath(`/drives/${driveId}`);
+  revalidatePath("/drives");
+
+  return { status: "success", message: "Drive marked as completed." };
+}
+
 export async function toggleDriveReaction(driveId: string): Promise<ToggleReactionState> {
   const supabase = await createClient();
   const {

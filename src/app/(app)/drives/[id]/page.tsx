@@ -6,6 +6,7 @@ import { RegisterDriveForm } from "@/components/club/RegisterDriveForm";
 import { UnregisterButton } from "@/components/club/UnregisterButton";
 import { CopyRosterButton } from "@/components/club/CopyRosterButton";
 import { BroadcastNoticeModal } from "@/components/club/BroadcastNoticeModal";
+import { DriveQuickActionButtons } from "@/components/club/DriveQuickActionButtons";
 import type { BroadcastTemplateData } from "@/lib/broadcastTemplate";
 import { Tabs } from "@/components/club/Tabs";
 import { DriveHero } from "./DriveHero";
@@ -34,6 +35,7 @@ type DriveDetail = {
   drive_id_code: string;
   title: string;
   status: DriveStatus;
+  registration_closed: boolean;
   drive_date: string;
   location: string;
   meeting_point_name: string | null;
@@ -101,7 +103,7 @@ export default async function DriveDetailPage({
   const { data, error } = await supabase
     .from("drives")
     .select(
-      `id, drive_id_code, title, status, drive_date, location,
+      `id, drive_id_code, title, status, registration_closed, drive_date, location,
        meeting_point_name, coordinates, exit_location, exit_location_map_url,
        nearest_petrol_station, nearest_petrol_station_map_url, map_url,
        meeting_time, drive_start_time, drive_end_time,
@@ -141,11 +143,13 @@ export default async function DriveDetailPage({
   // the purposes of swapping Share -> Edit, same as it already blocks a
   // second submission in submitTripReport.
   let myExistingReportId: string | null = null;
+  let myMobileNumber: string | null = null;
+  let myCarDetails: string | null = null;
   if (user) {
     const [{ data: profile }, { data: existing }, { data: existingReport }] = await Promise.all([
       supabase
         .from("profiles")
-        .select("current_rank, is_marshal, is_mit, is_admin")
+        .select("current_rank, is_marshal, is_mit, is_admin, mobile_number, car_details")
         .eq("id", user.id)
         .single(),
       supabase
@@ -168,6 +172,8 @@ export default async function DriveDetailPage({
     isSuperUser = isAdmin || (profile?.current_rank ?? 0) > 5;
     myRegistration = existing ?? null;
     myExistingReportId = existingReport?.id ?? null;
+    myMobileNumber = profile?.mobile_number ?? null;
+    myCarDetails = profile?.car_details ?? null;
   }
 
   // Rank alone was never the authorization gate anywhere else in this app —
@@ -492,9 +498,11 @@ export default async function DriveDetailPage({
         />
       )}
 
-      {drive.status !== "Scheduled" ? (
+      {drive.status !== "Scheduled" || drive.registration_closed ? (
         <section className="rounded-2xl border border-sand bg-sand-light px-5 py-4 text-center text-sm text-charcoal-light/80">
-          Registration is closed — this drive is marked {drive.status}.
+          {drive.status !== "Scheduled"
+            ? `Registration is closed — this drive is marked ${drive.status}.`
+            : "Registration for this drive is closed."}
         </section>
       ) : myRegistration ? (
         <section className="flex flex-col items-center gap-4 rounded-2xl border border-forest/30 bg-forest/10 px-5 py-5 text-center">
@@ -556,6 +564,9 @@ export default async function DriveDetailPage({
           driveId={drive.id}
           availableRoles={availableRoles}
           hasCamp={drive.has_camp}
+          profileComplete={Boolean(myMobileNumber) && Boolean(myCarDetails)}
+          initialMobileNumber={myMobileNumber}
+          initialCarDetails={myCarDetails}
         />
       )}
 
@@ -578,7 +589,7 @@ export default async function DriveDetailPage({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-start gap-3">
             <Link
               href={`/drives/${drive.id}/edit`}
               className="flex w-fit items-center gap-2 rounded-lg border border-forest/40 bg-off-white px-4 py-2.5 text-sm font-semibold text-forest transition-colors hover:bg-forest/10"
@@ -586,6 +597,11 @@ export default async function DriveDetailPage({
               <Settings className="h-4 w-4" />
               Edit Drive
             </Link>
+            <DriveQuickActionButtons
+              driveId={drive.id}
+              isAdmin={isAdmin}
+              registrationClosed={drive.registration_closed}
+            />
           </div>
         </section>
       )}

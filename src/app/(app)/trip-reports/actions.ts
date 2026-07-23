@@ -319,9 +319,12 @@ export type LinkDriveState = {
 };
 
 /** Retroactively attaches (or detaches, when `driveId` is null) a trip
- * report to a drive. Restricted to the report's own author or a Super
- * Admin — re-derived server-side from the caller's session, never trusted
- * from the client. */
+ * report to a drive. Marshal or Admin only — a normal author can no longer
+ * re-link or detach their own report once submitted (see AttachToDriveControl's
+ * gating on trip-reports/[id]/page.tsx). A Marshal additionally requires the
+ * report's author to have actually been registered on the target drive —
+ * an Admin can override that (the client shows a confirm warning first; the
+ * real enforcement is here, not the confirm dialog). */
 export async function linkTripReportToDrive(
   reportId: string,
   driveId: string | null,
@@ -339,20 +342,37 @@ export async function linkTripReportToDrive(
 
   const [{ data: report }, { data: profile }] = await Promise.all([
     supabase.from("trip_reports").select("author_id").eq("id", reportId).single(),
-    supabase.from("profiles").select("is_admin").eq("id", user.id).single(),
+    supabase.from("profiles").select("is_admin, is_marshal").eq("id", user.id).single(),
   ]);
 
   if (!report) {
     return { status: "error", message: "Couldn't find that trip report." };
   }
 
-  const isAuthor = report.author_id === user.id;
   const isAdmin = profile?.is_admin ?? false;
-  if (!isAuthor && !isAdmin) {
+  const isMarshal = profile?.is_marshal ?? false;
+  if (!isMarshal && !isAdmin) {
     return {
       status: "error",
-      message: "Only the report's author or a Super Admin can attach it to a drive.",
+      message: "Only a Marshal or Super Admin can attach a report to a drive.",
     };
+  }
+
+  if (driveId && isMarshal && !isAdmin) {
+    const { data: registration } = await supabase
+      .from("drive_registrations")
+      .select("id")
+      .eq("drive_id", driveId)
+      .eq("user_id", report.author_id)
+      .maybeSingle();
+
+    if (!registration) {
+      return {
+        status: "error",
+        message:
+          "This report's author wasn't registered on that drive — only a Super Admin can override this.",
+      };
+    }
   }
 
   const { error } = await supabase

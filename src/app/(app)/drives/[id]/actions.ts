@@ -98,7 +98,7 @@ export async function registerForDrive(
         .single(),
       supabase
         .from("drives")
-        .select("target_rank, max_drivers, has_camp, allowed_ranks, is_all_levels")
+        .select("target_rank, max_drivers, has_camp, allowed_ranks, is_all_levels, status, registration_closed")
         .eq("id", driveId)
         .single(),
     ]);
@@ -111,6 +111,12 @@ export async function registerForDrive(
   }
   if (driveError || !drive) {
     return { status: "error", message: "Couldn't find that drive." };
+  }
+
+  // The drive page hides the form once closed, but that's UI only — a
+  // direct POST could still reach this action, so the real gate is here.
+  if (drive.status !== "Scheduled" || drive.registration_closed) {
+    return { status: "error", message: "Registration for this drive is closed." };
   }
 
   // Rank 0 (Member) is below the floor of every real target_rank by

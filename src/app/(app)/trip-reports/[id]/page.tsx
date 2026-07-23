@@ -54,15 +54,21 @@ export default async function TripReportDetailPage({
   // see this page" true/false.
   let isAdmin = false;
   let isAuthorOrAdmin = false;
+  // Separate from isAuthorOrAdmin: an author can still view/edit their own
+  // report text, but re-linking or detaching its drive is now Marshal/Admin
+  // only — a normal member shouldn't be able to move their own report onto
+  // a different drive once it's submitted.
+  let isMarshalOrAdmin = false;
   if (user) {
     const isAuthor = report.author_id === user.id;
     const { data: profile } = await supabase
       .from("profiles")
-      .select("is_admin")
+      .select("is_admin, is_marshal")
       .eq("id", user.id)
       .single();
     isAdmin = profile?.is_admin ?? false;
     isAuthorOrAdmin = isAuthor || isAdmin;
+    isMarshalOrAdmin = (profile?.is_marshal ?? false) || isAdmin;
   }
 
   // Unapproved reports are only visible to their own author or an admin —
@@ -80,14 +86,21 @@ export default async function TripReportDetailPage({
   const viewerLiked = Boolean(user && reactionRows?.some((r) => r.user_id === user.id));
 
   let pastDrives: PastDrive[] = [];
-  if (isAuthorOrAdmin) {
-    const { data: drivesData } = await supabase
-      .from("drives")
-      .select("id, title, drive_date, lead_marshal:profiles(username, full_name)")
-      .eq("status", "Completed")
-      .order("drive_date", { ascending: false })
-      .overrideTypes<PastDrive[], { merge: false }>();
-    pastDrives = drivesData ?? [];
+  if (isMarshalOrAdmin) {
+    const [{ data: drivesData }, { data: authorRegs }] = await Promise.all([
+      supabase
+        .from("drives")
+        .select("id, title, drive_date, lead_marshal:profiles(username, full_name)")
+        .eq("status", "Completed")
+        .order("drive_date", { ascending: false })
+        .overrideTypes<Omit<PastDrive, "authorRegistered">[], { merge: false }>(),
+      supabase.from("drive_registrations").select("drive_id").eq("user_id", report.author_id),
+    ]);
+    const authorRegisteredDriveIds = new Set((authorRegs ?? []).map((r) => r.drive_id));
+    pastDrives = (drivesData ?? []).map((d) => ({
+      ...d,
+      authorRegistered: authorRegisteredDriveIds.has(d.id),
+    }));
   }
 
   return (
@@ -135,11 +148,12 @@ export default async function TripReportDetailPage({
         </Link>
       )}
 
-      {isAuthorOrAdmin && (
+      {isMarshalOrAdmin && (
         <AttachToDriveControl
           reportId={report.id}
           currentDriveId={report.drive_id}
           pastDrives={pastDrives}
+          isAdmin={isAdmin}
         />
       )}
     </div>

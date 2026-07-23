@@ -9,6 +9,7 @@ import {
   Send,
   LoaderCircle,
   CircleAlert,
+  Lock,
 } from "lucide-react";
 import { submitTripReport, type SubmitReportState } from "@/app/(app)/trip-reports/actions";
 import { PhotoDropzone } from "@/components/club/PhotoDropzone";
@@ -41,6 +42,15 @@ export function SubmitReportForm({
   );
   const [photosUploading, setPhotosUploading] = useState(false);
 
+  // Arrived from a specific drive's "Share yours" link — locked, not just
+  // pre-selected, so the report can't accidentally end up attached to a
+  // different drive than the one the member actually clicked through from.
+  // A disabled <select> wouldn't submit its value via FormData at all, so
+  // this renders a plain non-interactive display plus a hidden input
+  // instead, rather than a disabled select.
+  const lockedDrive =
+    initialDriveId ? completedDrives.find((d) => d.id === initialDriveId) : undefined;
+
   // No form.reset()-on-success handling here anymore — a successful
   // submission now redirects away entirely (to the drive page or the new
   // report itself), handled server-side in the Action, so this component
@@ -56,32 +66,38 @@ export function SubmitReportForm({
         <label htmlFor="driveId" className="text-sm font-medium text-charcoal">
           Drive
         </label>
-        <div className="relative">
-          <Route className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-charcoal-light/60" />
-          <select
-            id="driveId"
-            name="driveId"
-            defaultValue={
-              initialDriveId && completedDrives.some((d) => d.id === initialDriveId)
-                ? initialDriveId
-                : ""
-            }
-            className="w-full appearance-none rounded-lg border border-sand bg-off-white py-2 pr-9 pl-9 text-base text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
-          >
-            <option value="">Not tied to a specific drive</option>
-            {completedDrives.length > 0 && (
-              <optgroup label="Completed Drives">
-                {completedDrives.map((drive) => (
-                  <option key={drive.id} value={drive.id}>
-                    {drive.title} — {formatDate(drive.drive_date)} ·{" "}
-                    {drive.location}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-          <ChevronDown className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-charcoal-light/60" />
-        </div>
+        {lockedDrive ? (
+          <div className="flex items-center gap-2 rounded-lg border border-sand bg-sand-light px-3 py-2 text-sm text-charcoal-light/90">
+            <Lock className="h-4 w-4 shrink-0 text-charcoal-light/60" />
+            <span className="min-w-0 flex-1 truncate">
+              {lockedDrive.title} — {formatDate(lockedDrive.drive_date)} · {lockedDrive.location}
+            </span>
+            <input type="hidden" id="driveId" name="driveId" value={lockedDrive.id} />
+          </div>
+        ) : (
+          <div className="relative">
+            <Route className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-charcoal-light/60" />
+            <select
+              id="driveId"
+              name="driveId"
+              defaultValue=""
+              className="w-full appearance-none rounded-lg border border-sand bg-off-white py-2 pr-9 pl-9 text-base text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+            >
+              <option value="">Not tied to a specific drive</option>
+              {completedDrives.length > 0 && (
+                <optgroup label="Completed Drives">
+                  {completedDrives.map((drive) => (
+                    <option key={drive.id} value={drive.id}>
+                      {drive.title} — {formatDate(drive.drive_date)} ·{" "}
+                      {drive.location}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            <ChevronDown className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-charcoal-light/60" />
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">

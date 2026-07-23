@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Compass, Route, Calendar, Clock, MapPin, UserRound, Lock, Plus } from "lucide-react";
+import { Compass, Route, Calendar, Clock, MapPin, UserRound, Lock, Plus, CheckSquare } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { EmptyState, ErrorState } from "@/components/club/StateMessage";
 import { RankBadge } from "@/components/club/RankBadge";
@@ -99,10 +99,15 @@ function UpcomingCard({
   drive,
   userRank,
   registeredDrivers,
+  isRegistered,
 }: {
   drive: UpcomingDrive;
   userRank: number | null;
   registeredDrivers: number;
+  /** The viewer's own registration on this specific drive — independent of
+   * rank eligibility, and takes priority over it: someone already signed up
+   * shouldn't see "Eligible — tap to register" as if they hadn't. */
+  isRegistered: boolean;
 }) {
   // A Member (rank 0) isn't floor-gated by target_rank like a ranked member
   // — they're eligible display-wise for All Levels or a Newbie-only drive
@@ -144,10 +149,19 @@ function UpcomingCard({
       </div>
       <span
         className={`flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-          isLocked ? "bg-sand-light text-charcoal-light/80" : "bg-forest/10 text-forest"
+          isRegistered
+            ? "bg-forest/10 text-forest"
+            : isLocked
+              ? "bg-sand-light text-charcoal-light/80"
+              : "bg-forest/10 text-forest"
         }`}
       >
-        {isLocked ? (
+        {isRegistered ? (
+          <>
+            <CheckSquare className="h-3.5 w-3.5" />
+            You are registered on this drive
+          </>
+        ) : isLocked ? (
           <>
             <Lock className="h-3.5 w-3.5" />
             {userRank === null
@@ -161,7 +175,7 @@ function UpcomingCard({
     </>
   );
 
-  if (isLocked) {
+  if (isLocked && !isRegistered) {
     return (
       <div
         aria-disabled="true"
@@ -271,6 +285,7 @@ export default async function DrivesPage({
   let completedReportCounts = new Map<string, number>();
   let archiveDrives: ArchiveDrive[] = [];
   let unknownDateCount = 0;
+  let registeredDriveIds = new Set<string>();
 
   if (activeTab === "upcoming") {
     const { data, error: fetchError } = await supabase
@@ -287,6 +302,17 @@ export default async function DrivesPage({
       supabase,
       upcomingDrives.map((d) => d.id),
     );
+    if (user) {
+      const { data: myRegs } = await supabase
+        .from("drive_registrations")
+        .select("drive_id")
+        .eq("user_id", user.id)
+        .in(
+          "drive_id",
+          upcomingDrives.map((d) => d.id),
+        );
+      registeredDriveIds = new Set((myRegs ?? []).map((r) => r.drive_id));
+    }
   } else if (activeTab === "completed") {
     const { data, error: fetchError } = await supabase
       .from("drives")
@@ -383,6 +409,7 @@ export default async function DrivesPage({
                   drive={drive}
                   userRank={userRank}
                   registeredDrivers={upcomingCounts.get(drive.id) ?? 0}
+                  isRegistered={registeredDriveIds.has(drive.id)}
                 />
               </SwipeToDeleteRow>
             ))}

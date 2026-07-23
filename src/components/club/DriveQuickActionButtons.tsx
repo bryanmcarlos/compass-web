@@ -1,0 +1,111 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Lock, LockOpen, CircleCheck, LoaderCircle, CircleAlert } from "lucide-react";
+import {
+  setRegistrationClosed,
+  markDriveCompleted,
+} from "@/app/(app)/drives/actions";
+
+/** Sits beside "Edit Drive" in the Marshal Logistics Control Panel — quick
+ * status flips that don't need the full edit form. Marshals hitting "Mark
+ * as Completed" too early just get the server's rejection inline (the real
+ * enforcement lives in markDriveCompleted itself); Admins get a confirm
+ * prompt first since they're allowed to override it. */
+export function DriveQuickActionButtons({
+  driveId,
+  isAdmin,
+  registrationClosed,
+}: {
+  driveId: string;
+  isAdmin: boolean;
+  registrationClosed: boolean;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(
+    null,
+  );
+
+  function handleToggleRegistration() {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await setRegistrationClosed(driveId, !registrationClosed);
+      setMessage({
+        type: result.status === "error" ? "error" : "success",
+        text: result.message ?? "",
+      });
+      if (result.status === "success") router.refresh();
+    });
+  }
+
+  function handleMarkCompleted() {
+    if (isAdmin) {
+      const confirmed = window.confirm(
+        "Mark this drive as completed now, even if it hasn't finished yet? This is only meant for early/administrative corrections.",
+      );
+      if (!confirmed) return;
+    }
+    setMessage(null);
+    startTransition(async () => {
+      const result = await markDriveCompleted(driveId, isAdmin);
+      setMessage({
+        type: result.status === "error" ? "error" : "success",
+        text: result.message ?? "",
+      });
+      if (result.status === "success") router.refresh();
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={handleToggleRegistration}
+          disabled={isPending}
+          className="flex items-center gap-1.5 rounded-lg border border-sand bg-off-white px-3 py-2 text-xs font-semibold text-charcoal transition-colors hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isPending ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : registrationClosed ? (
+            <LockOpen className="h-3.5 w-3.5" />
+          ) : (
+            <Lock className="h-3.5 w-3.5" />
+          )}
+          {registrationClosed ? "Reopen Registration" : "Close Registration"}
+        </button>
+
+        <button
+          type="button"
+          onClick={handleMarkCompleted}
+          disabled={isPending}
+          className="flex items-center gap-1.5 rounded-lg border border-sand bg-off-white px-3 py-2 text-xs font-semibold text-charcoal transition-colors hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isPending ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <CircleCheck className="h-3.5 w-3.5" />
+          )}
+          Mark as Completed
+        </button>
+      </div>
+
+      {message && (
+        <p
+          className={`flex items-center gap-1.5 text-xs ${
+            message.type === "error" ? "text-error" : "text-forest-dark"
+          }`}
+        >
+          {message.type === "error" ? (
+            <CircleAlert className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <CircleCheck className="h-3.5 w-3.5 shrink-0" />
+          )}
+          {message.text}
+        </p>
+      )}
+    </div>
+  );
+}

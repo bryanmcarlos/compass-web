@@ -38,6 +38,9 @@ export type Member = {
   is_approved: boolean;
   mobile_number: string | null;
   car_details: string | null;
+  /** From `auth.users`, fetched server-side via a service-role client
+   * (admin/members/page.tsx) — not a `profiles` column. */
+  email: string | null;
 };
 
 type StatusMessageValue = { type: "error" | "success"; text: string } | null;
@@ -57,11 +60,17 @@ export function MembersTable({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    // Phone numbers are matched digits-only so "050 123 4567", "+9715...",
+    // and a plain typed "501234567" all find the same member regardless of
+    // how either side is formatted.
+    const qDigits = q.replace(/\D/g, "");
     return members.filter((m) => {
       const matchesQuery =
         !q ||
         m.username.toLowerCase().includes(q) ||
-        (m.full_name ?? "").toLowerCase().includes(q);
+        (m.full_name ?? "").toLowerCase().includes(q) ||
+        (m.email ?? "").toLowerCase().includes(q) ||
+        (qDigits.length > 0 && (m.mobile_number ?? "").replace(/\D/g, "").includes(qDigits));
       const matchesRank = rankFilter === "all" || m.current_rank === Number(rankFilter);
       return matchesQuery && matchesRank;
     });
@@ -76,7 +85,7 @@ export function MembersTable({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by username or name…"
+            placeholder="Search by username, name, email, or mobile…"
             className="w-full rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-base text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
           />
         </div>
