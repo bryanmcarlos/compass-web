@@ -233,7 +233,7 @@ export default async function DriveDetailPage({
     )
     .eq("drive_id", id)
     .eq("is_approved", true)
-    .order("created_at", { ascending: false })
+    .order("created_at", { ascending: true })
     .overrideTypes<TripReportCardData[], { merge: false }>();
 
   const tripReports = tripReportsData ?? [];
