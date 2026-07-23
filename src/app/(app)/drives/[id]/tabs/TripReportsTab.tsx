@@ -2,9 +2,14 @@ import type { ReactNode } from "react";
 import { Mountain } from "lucide-react";
 import { TripReportCard, type TripReportCardData } from "@/components/club/TripReportCard";
 import { PendingReportsReview, type PendingReport } from "@/components/club/PendingReportsReview";
+import {
+  DriveReportCleanupPanel,
+  type CleanupCandidateReport,
+} from "@/components/club/DriveReportCleanupPanel";
 import type { RegistrationRole } from "@/lib/driveRoles";
 
 export function TripReportsTab({
+  driveId,
   tripReports,
   pendingReports,
   canReviewReports,
@@ -12,7 +17,10 @@ export function TripReportsTab({
   myRegistration,
   myExistingReportId,
   reportCta,
+  cleanupDateCandidates,
+  cleanupKeywordCandidates,
 }: {
+  driveId: string;
   tripReports: TripReportCardData[];
   pendingReports: PendingReport[];
   canReviewReports: boolean;
@@ -20,9 +28,20 @@ export function TripReportsTab({
   myRegistration: { role: RegistrationRole } | null;
   myExistingReportId: string | null;
   reportCta: ReactNode;
+  /** Only ever populated when isAdmin — the temporary linking cleanup
+   * tool's own candidate pools, computed server-side in page.tsx. */
+  cleanupDateCandidates: CleanupCandidateReport[];
+  cleanupKeywordCandidates: CleanupCandidateReport[];
 }) {
   return (
     <div className="flex flex-col gap-4">
+      {isAdmin && (
+        <DriveReportCleanupPanel
+          driveId={driveId}
+          dateCandidates={cleanupDateCandidates}
+          keywordCandidates={cleanupKeywordCandidates}
+        />
+      )}
       {canReviewReports && <PendingReportsReview reports={pendingReports} canDelete={isAdmin} />}
 
       <section className="flex flex-col gap-4 rounded-2xl border border-sand bg-gradient-to-br from-off-white to-sand-light/30 p-5 shadow-sm sm:p-6">

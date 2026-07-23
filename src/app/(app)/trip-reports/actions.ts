@@ -377,6 +377,91 @@ export async function linkTripReportToDrive(
   };
 }
 
+export type RelinkState = {
+  status: "idle" | "error" | "success";
+  message: string | null;
+};
+
+/** Admin-only, purpose-built for the data-cleanup tool on the drive detail
+ * page and the /trip-reports "Unlinked Reports" panel. Distinct from
+ * linkTripReportToDrive above: that one is additive (a drive can carry many
+ * reports, an author attaching their own is never destructive to anyone
+ * else's), while this treats a drive's link as a single canonical slot —
+ * pointing a report at a drive here first detaches whatever report(s) were
+ * already occupying that drive, matching the cleanup tool's actual job of
+ * fixing one-to-one mis-links left over from the forum migration. The
+ * report's own previous drive (if it had one) is left untouched; only the
+ * target drive's slot is cleared. */
+export async function relinkTripReportToDrive(
+  reportId: string,
+  driveId: string,
+): Promise<RelinkState> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { status: "error", message: "You need to be signed in." };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", user.id)
+    .single();
+
+  if (!profile?.is_admin) {
+    return { status: "error", message: "Only Admins can use the linking cleanup tool." };
+  }
+
+  const { data: displaced } = await supabase
+    .from("trip_reports")
+    .select("id")
+    .eq("drive_id", driveId)
+    .neq("id", reportId);
+
+  if (displaced && displaced.length > 0) {
+    const { error: detachError } = await supabase
+      .from("trip_reports")
+      .update({ drive_id: null })
+      .eq("drive_id", driveId)
+      .neq("id", reportId);
+
+    if (detachError) {
+      console.error("SERVER ACTION ERROR [relinkTripReportToDrive detach]:", detachError);
+      return {
+        status: "error",
+        message: "Couldn't detach the previously linked report(s) — nothing was changed.",
+      };
+    }
+  }
+
+  const { error } = await supabase
+    .from("trip_reports")
+    .update({ drive_id: driveId })
+    .eq("id", reportId);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [relinkTripReportToDrive]:", error);
+    return { status: "error", message: "Couldn't link this report. Please try again." };
+  }
+
+  revalidatePath("/trip-reports");
+  revalidatePath(`/trip-reports/${reportId}`);
+  revalidatePath(`/drives/${driveId}`);
+
+  return {
+    status: "success",
+    message:
+      displaced && displaced.length > 0
+        ? `Linked — detached ${displaced.length} previously-linked report${displaced.length > 1 ? "s" : ""}.`
+        : "Linked.",
+  };
+}
+
 export type ApproveReportState = {
   status: "idle" | "error" | "success";
   message: string | null;

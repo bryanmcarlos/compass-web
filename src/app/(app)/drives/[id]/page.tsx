@@ -12,6 +12,12 @@ import { DriveHero } from "./DriveHero";
 import { RouteLogisticsTab } from "./tabs/RouteLogisticsTab";
 import { ConvoyRosterTab, type Registration } from "./tabs/ConvoyRosterTab";
 import { TripReportsTab } from "./tabs/TripReportsTab";
+import type { CleanupCandidateReport } from "@/components/club/DriveReportCleanupPanel";
+import {
+  CLEANUP_DATE_WINDOW_DAYS,
+  extractTitleKeywords,
+  countKeywordHits,
+} from "@/lib/tripReportMatching";
 import type { TripReportCardData } from "@/components/club/TripReportCard";
 import type { PendingReport } from "@/components/club/PendingReportsReview";
 import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
@@ -243,6 +249,61 @@ export default async function DriveDetailPage({
     pendingReports = pendingData ?? [];
   }
 
+  // Admin-only candidate pools for the temporary trip-report linking
+  // cleanup tool — never fetched for anyone else, so this costs nothing on
+  // every other drive page view. Both queries explicitly include NULL
+  // drive_id rows alongside "linked to a different drive" ones: a plain
+  // `.neq("drive_id", id)` would silently drop every unlinked report too,
+  // since SQL's `NULL <> x` is neither true nor false.
+  let cleanupDateCandidates: CleanupCandidateReport[] = [];
+  let cleanupKeywordCandidates: CleanupCandidateReport[] = [];
+  if (isAdmin) {
+    const CANDIDATE_FIELDS =
+      "id, report_text, created_at, " +
+      "author:profiles!trip_reports_author_id_fkey(username, full_name), " +
+      "currentDrive:drives(id, title)";
+    const notThisDrive = `drive_id.is.null,drive_id.neq.${id}`;
+
+    const driveDateMs = new Date(drive.drive_date).getTime();
+    const windowFrom = new Date(
+      driveDateMs - CLEANUP_DATE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const windowTo = new Date(
+      driveDateMs + CLEANUP_DATE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    const { data: dateRows } = await supabase
+      .from("trip_reports")
+      .select(CANDIDATE_FIELDS)
+      .or(notThisDrive)
+      .gte("created_at", windowFrom)
+      .lte("created_at", windowTo)
+      .order("created_at", { ascending: false })
+      .limit(20)
+      .overrideTypes<CleanupCandidateReport[], { merge: false }>();
+    cleanupDateCandidates = dateRows ?? [];
+
+    const titleKeywords = extractTitleKeywords(drive.title).slice(0, 6);
+    if (titleKeywords.length > 0) {
+      const ilikeFilter = titleKeywords.map((kw) => `report_text.ilike.%${kw}%`).join(",");
+      const { data: keywordRows } = await supabase
+        .from("trip_reports")
+        .select(CANDIDATE_FIELDS)
+        .or(notThisDrive)
+        .or(ilikeFilter)
+        .order("created_at", { ascending: false })
+        .limit(30)
+        .overrideTypes<CleanupCandidateReport[], { merge: false }>();
+
+      cleanupKeywordCandidates = (keywordRows ?? [])
+        .map((report) => ({ report, hits: countKeywordHits(titleKeywords, report.report_text) }))
+        .filter((entry) => entry.hits > 0)
+        .sort((a, b) => b.hits - a.hits)
+        .slice(0, 10)
+        .map((entry) => entry.report);
+    }
+  }
+
   const hasSupervisingMarshal = supports.some((r) => r.user?.current_rank === 5);
 
   const slotCount = Math.max(drive.max_drivers, drivers.length);
@@ -400,6 +461,7 @@ export default async function DriveDetailPage({
 
       {activeTab === "reports" && (
         <TripReportsTab
+          driveId={id}
           tripReports={tripReports}
           pendingReports={pendingReports}
           canReviewReports={canReviewReports}
@@ -407,6 +469,8 @@ export default async function DriveDetailPage({
           myRegistration={myRegistration}
           myExistingReportId={myExistingReportId}
           reportCta={reportCta}
+          cleanupDateCandidates={cleanupDateCandidates}
+          cleanupKeywordCandidates={cleanupKeywordCandidates}
         />
       )}
 

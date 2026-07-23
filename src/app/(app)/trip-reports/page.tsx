@@ -8,6 +8,17 @@ import { DriveThread, type ThreadReport, type ThreadDrive, type ReactionSummary 
 import { PendingReportsReview, type PendingReport } from "@/components/club/PendingReportsReview";
 import { TripReportCard } from "@/components/club/TripReportCard";
 import { CommentThread, type CommentData } from "@/components/club/CommentThread";
+import {
+  UnlinkedReportsCleanupPanel,
+  type UnlinkedReport,
+  type CleanupCandidateDrive,
+} from "@/components/club/UnlinkedReportsCleanupPanel";
+import {
+  CLEANUP_DATE_WINDOW_DAYS,
+  extractTitleKeywords,
+  countKeywordHits,
+  daysBetween,
+} from "@/lib/tripReportMatching";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -114,6 +125,53 @@ export default async function TripReportsPage({
       .select("id", { count: "exact", head: true })
       .eq("is_approved", false);
     pendingCount = count ?? 0;
+  }
+
+  // Admin-only, temporary — candidate drives for every currently-unlinked
+  // trip report, the /trip-reports counterpart to the drive-detail cleanup
+  // panel. Drives are a bounded, club-lifetime dataset (unlike trip_reports,
+  // which this session's migration work left at ~1800+ rows), so this
+  // fetches the full list once and matches in JS rather than round-tripping
+  // per report.
+  let unlinkedReports: UnlinkedReport[] = [];
+  if (isAdmin) {
+    const [{ data: unlinkedRows }, { data: allDrives }] = await Promise.all([
+      supabase
+        .from("trip_reports")
+        .select(
+          "id, report_text, created_at, author:profiles!trip_reports_author_id_fkey(username, full_name)",
+        )
+        .is("drive_id", null)
+        .order("created_at", { ascending: false })
+        .limit(50)
+        .overrideTypes<
+          { id: string; report_text: string; created_at: string; author: UnlinkedReport["author"] }[],
+          { merge: false }
+        >(),
+      supabase.from("drives").select("id, title, drive_date"),
+    ]);
+
+    const drivesList = allDrives ?? [];
+    unlinkedReports = (unlinkedRows ?? []).map((report) => {
+      const dateCandidates: CleanupCandidateDrive[] = [];
+      const keywordScored: { drive: CleanupCandidateDrive; hits: number }[] = [];
+
+      for (const drive of drivesList) {
+        if (daysBetween(report.created_at, drive.drive_date) <= CLEANUP_DATE_WINDOW_DAYS) {
+          dateCandidates.push(drive);
+        }
+        const keywords = extractTitleKeywords(drive.title);
+        const hits = keywords.length > 0 ? countKeywordHits(keywords, report.report_text) : 0;
+        if (hits > 0) keywordScored.push({ drive, hits });
+      }
+
+      const keywordCandidates = keywordScored
+        .sort((a, b) => b.hits - a.hits)
+        .slice(0, 10)
+        .map((entry) => entry.drive);
+
+      return { ...report, dateCandidates: dateCandidates.slice(0, 15), keywordCandidates };
+    });
   }
 
   const tabs = [
@@ -297,6 +355,12 @@ export default async function TripReportsPage({
           Share a Trip Report
         </Link>
       </header>
+
+      {isAdmin && (
+        <div className="mx-auto w-full max-w-2xl">
+          <UnlinkedReportsCleanupPanel reports={unlinkedReports} />
+        </div>
+      )}
 
       {tabs.length > 1 && <Tabs tabs={tabs} defaultKey="all" />}
 
