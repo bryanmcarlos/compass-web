@@ -101,21 +101,63 @@ export default async function DriveDetailPage({
   const activeTab = DETAIL_TABS.some((t) => t.key === tab) ? tab : "route";
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from("drives")
-    .select(
-      `id, drive_id_code, title, status, registration_closed, drive_date, location,
-       meeting_point_name, coordinates, exit_location, exit_location_map_url,
-       nearest_petrol_station, nearest_petrol_station_map_url, map_url,
-       meeting_time, drive_start_time, drive_end_time,
-       radio_frequency, target_rank, allowed_ranks, is_all_levels, max_drivers, equipment_requirements, must_skills_covered, banner_url,
-       has_camp, camp_date, camp_time, camp_location, camp_coordinates, camp_schedule_type,
-       drive_notes,
-       lead_marshal:profiles(username, full_name, current_rank)`,
-    )
-    .eq("id", id)
-    .single()
-    .overrideTypes<DriveDetail, { merge: false }>();
+  // None of these six depend on each other's results — only on `id`, already
+  // known from params — so they're fired together instead of as separate
+  // sequential round-trips. That matters far more now that the app's compute
+  // and the database aren't in the same region: every round-trip carries
+  // real network latency, and this page used to pay for roughly eight of
+  // them back-to-back on every load.
+  const [
+    { data, error },
+    { defaultDriveBannerUrl, broadcastMessageTemplate },
+    {
+      data: { user },
+    },
+    { data: registrationsData },
+    { data: driveReactionRows },
+    { data: tripReportsData },
+  ] = await Promise.all([
+    supabase
+      .from("drives")
+      .select(
+        `id, drive_id_code, title, status, registration_closed, drive_date, location,
+         meeting_point_name, coordinates, exit_location, exit_location_map_url,
+         nearest_petrol_station, nearest_petrol_station_map_url, map_url,
+         meeting_time, drive_start_time, drive_end_time,
+         radio_frequency, target_rank, allowed_ranks, is_all_levels, max_drivers, equipment_requirements, must_skills_covered, banner_url,
+         has_camp, camp_date, camp_time, camp_location, camp_coordinates, camp_schedule_type,
+         drive_notes,
+         lead_marshal:profiles(username, full_name, current_rank)`,
+      )
+      .eq("id", id)
+      .single()
+      .overrideTypes<DriveDetail, { merge: false }>(),
+    getAppSettings(),
+    supabase.auth.getUser(),
+    supabase
+      .from("drive_registrations")
+      .select(
+        "id, role, joining_camp, driver_rank, user:profiles(id, username, full_name, avatar_url, current_rank, is_mit, mobile_number, car_details)",
+      )
+      .eq("drive_id", id)
+      .order("registered_at", { ascending: true })
+      .overrideTypes<Registration[], { merge: false }>(),
+    supabase.from("drive_reactions").select("user_id").eq("drive_id", id),
+    // Only approved reports — same rule as the public feed. An unapproved
+    // report about this drive isn't hidden from the world, it's just not
+    // shown here yet either; its author can already see it from their own
+    // profile/the moderation queue.
+    supabase
+      .from("trip_reports")
+      .select(
+        `id, report_text, photos, created_at, is_approved,
+         author:profiles!trip_reports_author_id_fkey(username, full_name, avatar_url, current_rank)`,
+      )
+      .eq("drive_id", id)
+      .eq("is_approved", true)
+      .order("created_at", { ascending: true })
+      .overrideTypes<TripReportCardData[], { merge: false }>(),
+  ]);
 
   if (error || !data) {
     if (error) console.error("SERVER ERROR [DriveDetailPage select]:", error);
@@ -123,11 +165,29 @@ export default async function DriveDetailPage({
   }
   const drive = data;
 
-  const { defaultDriveBannerUrl, broadcastMessageTemplate } = await getAppSettings();
+  const allRegistrants = registrationsData ?? [];
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Roster grouping is strictly by the registered role, not the registrant's
+  // permanent rank — an Advanced+MIT member registered as 'Support' belongs
+  // in Supports, even though they might also be eligible for 'Lead'.
+  const leads = allRegistrants.filter((r) => r.role === "Lead");
+  const supports = allRegistrants.filter((r) => r.role === "Support");
+  const drivers = allRegistrants.filter((r) => r.role === "Driver");
+
+  // The "active driver slot" figure shown on Convoy Status and the roster's
+  // Drivers header — Drivers plus non-Marshal Support registrants, since an
+  // Advanced member Supporting a drive still occupies a driver-equivalent
+  // seat while a Marshal Supporting doesn't. Distinct from `drivers` above,
+  // which stays Driver-role-only because that's what the rank-grouped
+  // sections actually list.
+  const driverSlotCount = allRegistrants.filter((r) =>
+    countsAsDriverSlot(r.role, r.driver_rank, r.user?.current_rank ?? 0),
+  ).length;
+
+  const driveLikeCount = driveReactionRows?.length ?? 0;
+  const driveViewerLiked = Boolean(user && driveReactionRows?.some((r) => r.user_id === user.id));
+
+  const tripReports = tripReportsData ?? [];
 
   let userRank: number | null = null;
   let userIsMit = false;
@@ -187,147 +247,107 @@ export default async function DriveDetailPage({
   const requiredRank = CLUB_CONFIG.ranks.find((r) => r.level === drive.target_rank);
   const userRankTitle = CLUB_CONFIG.ranks.find((r) => r.level === userRank)?.title;
 
-  const { data: registrationsData } = await supabase
-    .from("drive_registrations")
-    .select(
-      "id, role, joining_camp, driver_rank, user:profiles(id, username, full_name, avatar_url, current_rank, is_mit, mobile_number, car_details)",
-    )
-    .eq("drive_id", id)
-    .order("registered_at", { ascending: true })
-    .overrideTypes<Registration[], { merge: false }>();
+  // pendingReports (keyed off canReviewReports) and the admin cleanup
+  // candidate pools (keyed off isAdmin) don't depend on each other, so they
+  // run together as one more parallel stage rather than two more sequential
+  // round-trips. Both are no-ops (empty, no query at all) for the common
+  // case of a plain member with neither flag.
+  const [pendingReports, { cleanupDateCandidates, cleanupKeywordCandidates }] = await Promise.all([
+    // Only fetched at all when the viewer can actually act on it — a plain
+    // member has no use for (and shouldn't need a round-trip revealing) the
+    // moderation queue for this drive.
+    (async (): Promise<PendingReport[]> => {
+      if (!canReviewReports) return [];
+      const { data: pendingData } = await supabase
+        .from("trip_reports")
+        .select(
+          `id, report_text,
+           author:profiles!trip_reports_author_id_fkey(username, full_name, avatar_url)`,
+        )
+        .eq("drive_id", id)
+        .eq("is_approved", false)
+        .order("created_at", { ascending: false })
+        .overrideTypes<PendingReport[], { merge: false }>();
+      return pendingData ?? [];
+    })(),
+    // Admin-only candidate pools for the temporary trip-report linking
+    // cleanup tool — never fetched for anyone else, so this costs nothing on
+    // every other drive page view. Both queries explicitly include NULL
+    // drive_id rows alongside "linked to a different drive" ones: a plain
+    // `.neq("drive_id", id)` would silently drop every unlinked report too,
+    // since SQL's `NULL <> x` is neither true nor false.
+    (async (): Promise<{
+      cleanupDateCandidates: CleanupCandidateReport[];
+      cleanupKeywordCandidates: CleanupCandidateReport[];
+    }> => {
+      if (!isAdmin) return { cleanupDateCandidates: [], cleanupKeywordCandidates: [] };
 
-  const allRegistrants = registrationsData ?? [];
+      // What the SELECT actually returns — dedupeByThread adds `replyCount`
+      // to produce the real CleanupCandidateReport shape the panel renders.
+      type RawCandidateRow = Omit<CleanupCandidateReport, "replyCount">;
 
-  // Roster grouping is strictly by the registered role, not the registrant's
-  // permanent rank — an Advanced+MIT member registered as 'Support' belongs
-  // in Supports, even though they might also be eligible for 'Lead'.
-  const leads = allRegistrants.filter((r) => r.role === "Lead");
-  const supports = allRegistrants.filter((r) => r.role === "Support");
-  const drivers = allRegistrants.filter((r) => r.role === "Driver");
+      const CANDIDATE_FIELDS =
+        "id, report_text, created_at, thread_id, " +
+        "author:profiles!trip_reports_author_id_fkey(username, full_name), " +
+        "currentDrive:drives(id, title)";
+      const notThisDrive = `drive_id.is.null,drive_id.neq.${id}`;
+      // The root-post refetch inside dedupeByThread doesn't re-apply this
+      // filter (it just wants "the thread's whole story," not just the post
+      // that happened to match), so a thread whose root is already correctly
+      // linked here — only a reply matched the date/keyword filter — needs
+      // filtering back out afterward or it'd show up as its own candidate.
+      const notAlreadyLinkedHere = (rows: CleanupCandidateReport[]) =>
+        rows.filter((r) => r.currentDrive?.id !== id);
 
-  // The "active driver slot" figure shown on Convoy Status and the roster's
-  // Drivers header — Drivers plus non-Marshal Support registrants, since an
-  // Advanced member Supporting a drive still occupies a driver-equivalent
-  // seat while a Marshal Supporting doesn't. Distinct from `drivers` above,
-  // which stays Driver-role-only because that's what the rank-grouped
-  // sections actually list.
-  const driverSlotCount = allRegistrants.filter((r) =>
-    countsAsDriverSlot(r.role, r.driver_rank, r.user?.current_rank ?? 0),
-  ).length;
+      const driveDateMs = new Date(drive.drive_date).getTime();
+      const windowFrom = new Date(
+        driveDateMs - CLEANUP_DATE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      const windowTo = new Date(
+        driveDateMs + CLEANUP_DATE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
 
-  const { data: driveReactionRows } = await supabase
-    .from("drive_reactions")
-    .select("user_id")
-    .eq("drive_id", id);
-  const driveLikeCount = driveReactionRows?.length ?? 0;
-  const driveViewerLiked = Boolean(user && driveReactionRows?.some((r) => r.user_id === user.id));
-
-  // Only approved reports — same rule as the public feed. An unapproved
-  // report about this drive isn't hidden from the world, it's just not
-  // shown here yet either; its author can already see it from their own
-  // profile/the moderation queue.
-  const { data: tripReportsData } = await supabase
-    .from("trip_reports")
-    .select(
-      `id, report_text, photos, created_at, is_approved,
-       author:profiles!trip_reports_author_id_fkey(username, full_name, avatar_url, current_rank)`,
-    )
-    .eq("drive_id", id)
-    .eq("is_approved", true)
-    .order("created_at", { ascending: true })
-    .overrideTypes<TripReportCardData[], { merge: false }>();
-
-  const tripReports = tripReportsData ?? [];
-
-  // Only fetched at all when the viewer can actually act on it — a plain
-  // member has no use for (and shouldn't need a round-trip revealing) the
-  // moderation queue for this drive.
-  let pendingReports: PendingReport[] = [];
-  if (canReviewReports) {
-    const { data: pendingData } = await supabase
-      .from("trip_reports")
-      .select(
-        `id, report_text,
-         author:profiles!trip_reports_author_id_fkey(username, full_name, avatar_url)`,
-      )
-      .eq("drive_id", id)
-      .eq("is_approved", false)
-      .order("created_at", { ascending: false })
-      .overrideTypes<PendingReport[], { merge: false }>();
-    pendingReports = pendingData ?? [];
-  }
-
-  // Admin-only candidate pools for the temporary trip-report linking
-  // cleanup tool — never fetched for anyone else, so this costs nothing on
-  // every other drive page view. Both queries explicitly include NULL
-  // drive_id rows alongside "linked to a different drive" ones: a plain
-  // `.neq("drive_id", id)` would silently drop every unlinked report too,
-  // since SQL's `NULL <> x` is neither true nor false.
-  let cleanupDateCandidates: CleanupCandidateReport[] = [];
-  let cleanupKeywordCandidates: CleanupCandidateReport[] = [];
-  if (isAdmin) {
-    // What the SELECT actually returns — dedupeByThread adds `replyCount`
-    // to produce the real CleanupCandidateReport shape the panel renders.
-    type RawCandidateRow = Omit<CleanupCandidateReport, "replyCount">;
-
-    const CANDIDATE_FIELDS =
-      "id, report_text, created_at, thread_id, " +
-      "author:profiles!trip_reports_author_id_fkey(username, full_name), " +
-      "currentDrive:drives(id, title)";
-    const notThisDrive = `drive_id.is.null,drive_id.neq.${id}`;
-    // The root-post refetch inside dedupeByThread doesn't re-apply this
-    // filter (it just wants "the thread's whole story," not just the post
-    // that happened to match), so a thread whose root is already correctly
-    // linked here — only a reply matched the date/keyword filter — needs
-    // filtering back out afterward or it'd show up as its own candidate.
-    const notAlreadyLinkedHere = (rows: CleanupCandidateReport[]) =>
-      rows.filter((r) => r.currentDrive?.id !== id);
-
-    const driveDateMs = new Date(drive.drive_date).getTime();
-    const windowFrom = new Date(
-      driveDateMs - CLEANUP_DATE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-    ).toISOString();
-    const windowTo = new Date(
-      driveDateMs + CLEANUP_DATE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-    ).toISOString();
-
-    const { data: dateRows } = await supabase
-      .from("trip_reports")
-      .select(CANDIDATE_FIELDS)
-      .or(notThisDrive)
-      .gte("created_at", windowFrom)
-      .lte("created_at", windowTo)
-      .order("created_at", { ascending: false })
-      .limit(20)
-      .overrideTypes<RawCandidateRow[], { merge: false }>();
-    cleanupDateCandidates = notAlreadyLinkedHere(
-      await dedupeByThread(supabase, dateRows ?? [], CANDIDATE_FIELDS),
-    );
-
-    const titleKeywords = extractTitleKeywords(drive.title).slice(0, 6);
-    if (titleKeywords.length > 0) {
-      const ilikeFilter = titleKeywords.map((kw) => `report_text.ilike.%${kw}%`).join(",");
-      const { data: keywordRows } = await supabase
+      const { data: dateRows } = await supabase
         .from("trip_reports")
         .select(CANDIDATE_FIELDS)
         .or(notThisDrive)
-        .or(ilikeFilter)
+        .gte("created_at", windowFrom)
+        .lte("created_at", windowTo)
         .order("created_at", { ascending: false })
-        .limit(30)
+        .limit(20)
         .overrideTypes<RawCandidateRow[], { merge: false }>();
-
-      const scoredKeywordCandidates = (keywordRows ?? [])
-        .map((report) => ({ report, hits: countKeywordHits(titleKeywords, report.report_text) }))
-        .filter((entry) => entry.hits > 0)
-        .sort((a, b) => b.hits - a.hits)
-        .slice(0, 10)
-        .map((entry) => entry.report);
-
-      cleanupKeywordCandidates = notAlreadyLinkedHere(
-        await dedupeByThread(supabase, scoredKeywordCandidates, CANDIDATE_FIELDS),
+      const dateCandidates = notAlreadyLinkedHere(
+        await dedupeByThread(supabase, dateRows ?? [], CANDIDATE_FIELDS),
       );
-    }
-  }
+
+      let keywordCandidates: CleanupCandidateReport[] = [];
+      const titleKeywords = extractTitleKeywords(drive.title).slice(0, 6);
+      if (titleKeywords.length > 0) {
+        const ilikeFilter = titleKeywords.map((kw) => `report_text.ilike.%${kw}%`).join(",");
+        const { data: keywordRows } = await supabase
+          .from("trip_reports")
+          .select(CANDIDATE_FIELDS)
+          .or(notThisDrive)
+          .or(ilikeFilter)
+          .order("created_at", { ascending: false })
+          .limit(30)
+          .overrideTypes<RawCandidateRow[], { merge: false }>();
+
+        const scoredKeywordCandidates = (keywordRows ?? [])
+          .map((report) => ({ report, hits: countKeywordHits(titleKeywords, report.report_text) }))
+          .filter((entry) => entry.hits > 0)
+          .sort((a, b) => b.hits - a.hits)
+          .slice(0, 10)
+          .map((entry) => entry.report);
+
+        keywordCandidates = notAlreadyLinkedHere(
+          await dedupeByThread(supabase, scoredKeywordCandidates, CANDIDATE_FIELDS),
+        );
+      }
+
+      return { cleanupDateCandidates: dateCandidates, cleanupKeywordCandidates: keywordCandidates };
+    })(),
+  ]);
 
   const hasSupervisingMarshal = supports.some((r) => r.user?.current_rank === 5);
 

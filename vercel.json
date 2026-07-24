@@ -4,6 +4,5 @@
       "path": "/api/cron/complete-drives",
       "schedule": "0 23 * * *"
     }
-  ],
-  "regions": ["bom1"]
+  ]
 }
