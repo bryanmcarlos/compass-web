@@ -60,14 +60,20 @@ export default async function ExamsPage() {
     // approved trip reports and the must-skills their drives covered.
     supabase
       .from("trip_reports")
-      .select("drive_id, created_at, drive:drives(must_skills_covered)")
+      .select(
+        "drive_id, created_at, drive:drives(must_skills_covered, target_rank, is_all_levels)",
+      )
       .eq("author_id", user.id)
       .eq("is_approved", true)
       .overrideTypes<
         {
           drive_id: string | null;
           created_at: string;
-          drive: { must_skills_covered: string[] | null } | null;
+          drive: {
+            must_skills_covered: string[] | null;
+            target_rank: number;
+            is_all_levels: boolean;
+          } | null;
         }[],
         { merge: false }
       >(),
@@ -115,13 +121,21 @@ export default async function ExamsPage() {
   // drive itself only unlocks *after* passing the challenges below.
   const curriculum = COMPASS_RANKS[rank as 2 | 3];
   const requiredDrives = curriculum.requiredDrives ?? 0;
-  const approvedDrives = qualifyingReportRows.length;
   const unlockedSkills = new Set<string>();
   for (const row of qualifyingReportRows) {
     for (const skill of row.drive?.must_skills_covered ?? []) {
       unlockedSkills.add(skill);
     }
   }
+  // Unlike skill unlocking above, the drive *count* is scoped to this
+  // member's current rank tier (or an all-levels drive) — otherwise reports
+  // from a lower-tier drive that already earned their last promotion (e.g.
+  // Newbie-tier reports used to reach Rookie) keep counting toward this
+  // one too, so a member can land on their new rank already showing "X/5"
+  // with zero drives actually done at this tier.
+  const approvedDrives = qualifyingReportRows.filter(
+    (r) => r.drive?.target_rank === rank || r.drive?.is_all_levels,
+  ).length;
   const gatedSkill = curriculum.gatedFinalMustSkill;
   const mustSkills = curriculum.mustSkills ?? [];
   const regularMustSkills = mustSkills.filter((s) => s !== gatedSkill);

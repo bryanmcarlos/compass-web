@@ -37,11 +37,19 @@ export default async function ProfilePage() {
     );
   }
 
+  const currentRank =
+    CLUB_CONFIG.ranks.find((r) => r.level === profile.current_rank) ??
+    CLUB_CONFIG.ranks[0];
+  const nextRank =
+    CLUB_CONFIG.ranks.find((r) => r.level === currentRank.level + 1) ?? null;
+
   const [{ data: approvedReportsData, error: countError }, { data: registrationRows }] =
     await Promise.all([
       supabase
         .from("trip_reports")
-        .select("id, drive_id, created_at, drive:drives(must_skills_covered)")
+        .select(
+          "id, drive_id, created_at, drive:drives(must_skills_covered, target_rank, is_all_levels)",
+        )
         .eq("author_id", profile.id)
         .eq("is_approved", true)
         .overrideTypes<
@@ -49,7 +57,11 @@ export default async function ProfilePage() {
             id: string;
             drive_id: string | null;
             created_at: string;
-            drive: { must_skills_covered: string[] | null } | null;
+            drive: {
+              must_skills_covered: string[] | null;
+              target_rank: number;
+              is_all_levels: boolean;
+            } | null;
           }[],
           { merge: false }
         >(),
@@ -66,7 +78,6 @@ export default async function ProfilePage() {
       r.created_at < DRIVE_COUNT_REGISTRATION_GATE_START ||
       (r.drive_id !== null && registeredDriveIds.has(r.drive_id)),
   );
-  const approvedDrives = approvedReports.length;
 
   // Each approved trip report unlocks whatever curriculum skills its drive
   // addressed, regardless of which rank tier that drive targeted — a marshal
@@ -78,11 +89,15 @@ export default async function ProfilePage() {
     }
   }
 
-  const currentRank =
-    CLUB_CONFIG.ranks.find((r) => r.level === profile.current_rank) ??
-    CLUB_CONFIG.ranks[0];
-  const nextRank =
-    CLUB_CONFIG.ranks.find((r) => r.level === currentRank.level + 1) ?? null;
+  // The drive *count* itself, unlike skill unlocking above, is scoped to the
+  // member's current rank tier (or an all-levels drive) — otherwise reports
+  // from drives that already earned a previous promotion (e.g. Newbie-tier
+  // reports used to reach Rookie) keep counting toward the next one too, so
+  // a member can land on their new rank already showing "5/5" with zero
+  // drives actually done at that tier.
+  const approvedDrives = approvedReports.filter(
+    (r) => r.drive?.target_rank === currentRank.level || r.drive?.is_all_levels,
+  ).length;
 
   const curriculum = COMPASS_RANKS[currentRank.level as 1 | 2 | 3 | 4 | 5];
   const mustSkills = curriculum?.mustSkills ?? [];
