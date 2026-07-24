@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CircleCheck, CircleAlert, HourglassIcon, LoaderCircle, Send, Lock } from "lucide-react";
+import { CircleCheck, CircleAlert, HourglassIcon, LoaderCircle, Send, Lock, CalendarCheck } from "lucide-react";
 import { submitExam, type ExamType } from "@/app/(app)/profile/exams/actions";
 
-export type ExamStatus = "not_submitted" | "pending" | "passed" | "failed";
+export type ExamStatus = "not_submitted" | "pending" | "accepted" | "passed" | "failed";
 
 export type BuddyOption = { id: string; name: string };
 
@@ -23,6 +24,14 @@ function StatusBadge({ status }: { status: ExamStatus }) {
       <span className="flex items-center gap-1 rounded-full bg-diff-moderate-bg px-2 py-0.5 text-[10px] font-semibold text-diff-moderate">
         <HourglassIcon className="h-3.5 w-3.5" />
         Under Review
+      </span>
+    );
+  }
+  if (status === "accepted") {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-forest/10 px-2 py-0.5 text-[10px] font-semibold text-forest">
+        <CalendarCheck className="h-3.5 w-3.5" />
+        Accepted — Exam Drive Scheduled
       </span>
     );
   }
@@ -49,6 +58,8 @@ export function ExamSubmissionForm({
   requiresBuddy,
   buddyOptions,
   locked,
+  lockedReason = "Unlocks once your 5 drives and must-skills above are complete.",
+  examDrive,
 }: {
   examType: ExamType;
   title: string;
@@ -61,6 +72,13 @@ export function ExamSubmissionForm({
    * clearer UI than a generic rejection message would be, not the real
    * enforcement. */
   locked: boolean;
+  /** Overrides the generic locked message — used for R2, which is also
+   * locked behind R1 being passed and reported, not just drives/must-skills. */
+  lockedReason?: string;
+  /** The exam drive a Marshal accepted this submission into, once status is
+   * "accepted" or later — lets the member jump straight to it instead of
+   * hunting for it in Official Drives. */
+  examDrive?: { id: string; title: string; driveIdCode: string } | null;
 }) {
   const router = useRouter();
   const [notes, setNotes] = useState("");
@@ -101,8 +119,18 @@ export function ExamSubmissionForm({
       {locked && (status === "not_submitted" || status === "failed") && (
         <p className="flex items-center gap-1.5 rounded-lg bg-sand-light px-3 py-2 text-xs text-charcoal-light/70">
           <Lock className="h-3.5 w-3.5 shrink-0" />
-          Unlocks once your 5 drives and must-skills above are complete.
+          {lockedReason}
         </p>
+      )}
+
+      {status === "accepted" && examDrive && (
+        <Link
+          href={`/drives/${examDrive.id}`}
+          className="flex items-center gap-1.5 rounded-lg border border-forest/30 bg-forest/5 px-3 py-2 text-xs font-semibold text-forest-dark transition-colors hover:border-forest/50"
+        >
+          <CalendarCheck className="h-3.5 w-3.5 shrink-0" />
+          You&apos;re registered — {examDrive.driveIdCode}: {examDrive.title}
+        </Link>
       )}
 
       {canSubmit && (

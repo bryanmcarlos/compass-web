@@ -61,6 +61,37 @@ async function checkChallengeEligibility(
   return meetsDriveCount && meetsMustSkills;
 }
 
+/** R2 only unlocks once R1 is actually done end-to-end: passed by a Marshal
+ * on its linked exam drive, AND an approved trip report exists for that
+ * same exam drive — matching the real club process (challenge -> Marshal-
+ * run exam drive -> pass -> trip report -> next challenge unlocks), not
+ * just "drives + must-skills," which R1 itself already required. */
+async function checkR1PassedAndReported(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+): Promise<boolean> {
+  const { data: r1 } = await supabase
+    .from("exam_submissions")
+    .select("exam_drive_id, status")
+    .eq("user_id", userId)
+    .eq("exam_type", "R1_CATCH_THE_FLAG")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (r1?.status !== "passed" || !r1.exam_drive_id) return false;
+
+  const { data: report } = await supabase
+    .from("trip_reports")
+    .select("id")
+    .eq("author_id", userId)
+    .eq("drive_id", r1.exam_drive_id)
+    .eq("is_approved", true)
+    .maybeSingle();
+
+  return Boolean(report);
+}
+
 /** Driver-facing submission for any single-pass challenge (R1/R2 for
  * Rookies, I1/I2/I3 for Intermediate members) — R1 requires a distinct
  * buddy (the club's actual verification is the driver mentioning that
@@ -116,6 +147,17 @@ export async function submitExam(
     };
   }
 
+  if (examType === "R2_MAZE") {
+    const r1Done = await checkR1PassedAndReported(supabase, user.id);
+    if (!r1Done) {
+      return {
+        status: "error",
+        message:
+          "R2 unlocks once you've passed R1 on its exam drive and submitted an approved trip report for it.",
+      };
+    }
+  }
+
   const trimmedNotes = notes.trim();
   if (trimmedNotes.length === 0) {
     return { status: "error", message: "Describe your challenge post or attach a link before submitting." };
@@ -151,6 +193,12 @@ export async function submitExam(
 
   if (latestSubmission?.status === "pending") {
     return { status: "error", message: "You already have a submission awaiting review." };
+  }
+  if (latestSubmission?.status === "accepted") {
+    return {
+      status: "error",
+      message: "A Marshal has already accepted your submission into an exam drive — register and attend it.",
+    };
   }
   if (latestSubmission?.status === "passed") {
     return { status: "success", message: "You've already passed this exam." };

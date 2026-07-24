@@ -44,10 +44,17 @@ export default async function ExamsPage() {
   ] = await Promise.all([
     supabase
       .from("exam_submissions")
-      .select("exam_type, status")
+      .select("exam_type, status, drive:drives!exam_submissions_exam_drive_id_fkey(id, title, drive_id_code)")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
-      .overrideTypes<{ exam_type: string; status: ExamStatus }[], { merge: false }>(),
+      .overrideTypes<
+        {
+          exam_type: string;
+          status: ExamStatus;
+          drive: { id: string; title: string; drive_id_code: string } | null;
+        }[],
+        { merge: false }
+      >(),
     // Only R1 needs a buddy — fetched regardless of rank for simplicity,
     // unused (and harmless) when rank 3 renders I1/I2/I3 instead.
     supabase
@@ -101,11 +108,26 @@ export default async function ExamsPage() {
   );
 
   const latestByType = new Map<string, ExamStatus>();
+  const examDriveByType = new Map<string, { id: string; title: string; driveIdCode: string } | null>();
   for (const row of submissions ?? []) {
     if (!latestByType.has(row.exam_type)) {
       latestByType.set(row.exam_type, row.status);
+      examDriveByType.set(
+        row.exam_type,
+        row.drive ? { id: row.drive.id, title: row.drive.title, driveIdCode: row.drive.drive_id_code } : null,
+      );
     }
   }
+
+  // R2 additionally unlocks only once R1 is passed AND reported — mirrors
+  // checkR1PassedAndReported in actions.ts, the real server-side gate; this
+  // is purely so the UI can explain the lock rather than a generic message.
+  const r1ExamDrive = examDriveByType.get("R1_CATCH_THE_FLAG");
+  const r1PassedAndReported =
+    latestByType.get("R1_CATCH_THE_FLAG") === "passed" &&
+    Boolean(r1ExamDrive) &&
+    (reportRows ?? []).some((r) => r.drive_id === r1ExamDrive!.id);
+
   const soloGpsSubmissions = (submissions ?? []).filter((s) => s.exam_type === "SOLO_GPS_DRIVE");
   const soloGpsPassedCount = soloGpsSubmissions.filter((s) => s.status === "passed").length;
   const soloGpsHasPending = soloGpsSubmissions.some((s) => s.status === "pending");
@@ -212,20 +234,27 @@ export default async function ExamsPage() {
               <ExamSubmissionForm
                 examType="R1_CATCH_THE_FLAG"
                 title="R1: Catch the Flag"
-                description="Buddy-system challenge — mention your buddy's name in your challenge post, then name them here."
+                description="Buddy-system challenge — mention your buddy's name in your challenge post, then name them here. Once a Marshal accepts your submission, you'll be registered onto the exam drive where it's graded."
                 status={latestByType.get("R1_CATCH_THE_FLAG") ?? "not_submitted"}
                 requiresBuddy
                 buddyOptions={buddyOptions}
                 locked={!challengesUnlocked}
+                examDrive={examDriveByType.get("R1_CATCH_THE_FLAG") ?? null}
               />
               <ExamSubmissionForm
                 examType="R2_MAZE"
                 title="R2: Maze"
-                description="Individual challenge."
+                description="Individual challenge. Unlocks once R1 is passed and reported."
                 status={latestByType.get("R2_MAZE") ?? "not_submitted"}
                 requiresBuddy={false}
                 buddyOptions={[]}
-                locked={!challengesUnlocked}
+                locked={!challengesUnlocked || !r1PassedAndReported}
+                lockedReason={
+                  !challengesUnlocked
+                    ? undefined
+                    : "Unlocks once you've passed R1 on its exam drive and submitted an approved trip report for it."
+                }
+                examDrive={examDriveByType.get("R2_MAZE") ?? null}
               />
 
               {challengesUnlocked && !gatedSkillDone && (

@@ -4,6 +4,10 @@ import { createClient } from "@/utils/supabase/server";
 import { ErrorState, EmptyState } from "@/components/club/StateMessage";
 import { Tabs } from "@/components/club/Tabs";
 import { ExamReviewCard, type ExamSubmissionReview } from "@/components/club/ExamReviewCard";
+import {
+  ChallengeAcceptancePanel,
+  type CandidateExamDrive,
+} from "@/components/club/ChallengeAcceptancePanel";
 import { PromotionReadyCard, type PromotionReadyMember } from "@/components/club/PromotionReadyCard";
 import {
   NewbiePromotionReadyCard,
@@ -58,6 +62,26 @@ async function fetchPendingSubmissions(
         ? { name: row.buddy.full_name ?? row.buddy.username, avatarUrl: row.buddy.avatar_url }
         : null,
     }));
+}
+
+/** Upcoming Rookie-tier drives a Marshal can accept pending R1/R2
+ * submissions into — Scheduled only (a Completed one is already done, too
+ * late to accept anyone into it) and target_rank 2 specifically, since R1/
+ * R2 exams only make sense on a Rookie-tier drive. */
+async function fetchCandidateExamDrives(supabase: SupabaseServerClient): Promise<CandidateExamDrive[]> {
+  const { data } = await supabase
+    .from("drives")
+    .select("id, title, drive_id_code, drive_date")
+    .eq("status", "Scheduled")
+    .eq("target_rank", 2)
+    .order("drive_date", { ascending: true });
+
+  return (data ?? []).map((d) => ({
+    id: d.id,
+    title: d.title,
+    driveIdCode: d.drive_id_code,
+    driveDate: d.drive_date,
+  }));
 }
 
 /** Mirrors fetchReadyMembers below exactly in shape, one stage earlier —
@@ -156,26 +180,37 @@ async function fetchReadyMembers(supabase: SupabaseServerClient): Promise<Promot
   const [{ data: reportRows }, { data: examRows }] = await Promise.all([
     supabase
       .from("trip_reports")
-      .select("author_id, drive:drives(must_skills_covered)")
+      .select("author_id, drive_id, drive:drives(must_skills_covered)")
       .in("author_id", rookieIds)
       .eq("is_approved", true)
       .overrideTypes<
-        { author_id: string; drive: { must_skills_covered: string[] | null } | null }[],
+        {
+          author_id: string;
+          drive_id: string | null;
+          drive: { must_skills_covered: string[] | null } | null;
+        }[],
         { merge: false }
       >(),
     supabase
       .from("exam_submissions")
-      .select("user_id, exam_type, status, created_at")
+      .select("user_id, exam_type, status, exam_drive_id, created_at")
       .in("user_id", rookieIds)
       .order("created_at", { ascending: false })
       .overrideTypes<
-        { user_id: string; exam_type: string; status: string; created_at: string }[],
+        {
+          user_id: string;
+          exam_type: string;
+          status: string;
+          exam_drive_id: string | null;
+          created_at: string;
+        }[],
         { merge: false }
       >(),
   ]);
 
   const approvedCountByUser = new Map<string, number>();
   const unlockedSkillsByUser = new Map<string, Set<string>>();
+  const reportedDriveIdsByUser = new Map<string, Set<string>>();
   for (const row of reportRows ?? []) {
     approvedCountByUser.set(row.author_id, (approvedCountByUser.get(row.author_id) ?? 0) + 1);
     const skills = unlockedSkillsByUser.get(row.author_id) ?? new Set<string>();
@@ -183,13 +218,21 @@ async function fetchReadyMembers(supabase: SupabaseServerClient): Promise<Promot
       skills.add(skill);
     }
     unlockedSkillsByUser.set(row.author_id, skills);
+    if (row.drive_id) {
+      const driveIds = reportedDriveIdsByUser.get(row.author_id) ?? new Set<string>();
+      driveIds.add(row.drive_id);
+      reportedDriveIdsByUser.set(row.author_id, driveIds);
+    }
   }
 
-  const latestExamByUser = new Map<string, Map<string, string>>();
+  // Keyed by exam_type -> { status, examDriveId } per user, same shape as
+  // promoteToIntermediate's own re-check — "passed" alone isn't enough,
+  // each also needs its own approved trip report for its exam drive.
+  const latestExamByUser = new Map<string, Map<string, { status: string; examDriveId: string | null }>>();
   for (const row of examRows ?? []) {
-    const userExams = latestExamByUser.get(row.user_id) ?? new Map<string, string>();
+    const userExams = latestExamByUser.get(row.user_id) ?? new Map();
     if (!userExams.has(row.exam_type)) {
-      userExams.set(row.exam_type, row.status);
+      userExams.set(row.exam_type, { status: row.status, examDriveId: row.exam_drive_id });
     }
     latestExamByUser.set(row.user_id, userExams);
   }
@@ -198,12 +241,18 @@ async function fetchReadyMembers(supabase: SupabaseServerClient): Promise<Promot
   for (const rookie of rookies) {
     const approvedCount = approvedCountByUser.get(rookie.id) ?? 0;
     const unlockedSkills = unlockedSkillsByUser.get(rookie.id) ?? new Set<string>();
+    const reportedDriveIds = reportedDriveIdsByUser.get(rookie.id) ?? new Set<string>();
     const userExams = latestExamByUser.get(rookie.id);
+    const r1 = userExams?.get("R1_CATCH_THE_FLAG");
+    const r2 = userExams?.get("R2_MAZE");
 
     const meetsDriveCount = approvedCount >= requiredCount;
     const meetsMustSkills = requiredMustSkills.every((s) => unlockedSkills.has(s));
     const meetsExams =
-      userExams?.get("R1_CATCH_THE_FLAG") === "passed" && userExams?.get("R2_MAZE") === "passed";
+      r1?.status === "passed" &&
+      Boolean(r1.examDriveId && reportedDriveIds.has(r1.examDriveId)) &&
+      r2?.status === "passed" &&
+      Boolean(r2.examDriveId && reportedDriveIds.has(r2.examDriveId));
 
     if (meetsDriveCount && meetsMustSkills && meetsExams) {
       ready.push({
@@ -440,6 +489,7 @@ export default async function PromotionsReviewPage({
   let error: string | null = null;
   let r1Submissions: ExamSubmissionReview[] = [];
   let r2Submissions: ExamSubmissionReview[] = [];
+  let candidateExamDrives: CandidateExamDrive[] = [];
   let i1Submissions: ExamSubmissionReview[] = [];
   let i2Submissions: ExamSubmissionReview[] = [];
   let i3Submissions: ExamSubmissionReview[] = [];
@@ -451,9 +501,15 @@ export default async function PromotionsReviewPage({
 
   try {
     if (activeTab === "r1") {
-      r1Submissions = await fetchPendingSubmissions(supabase, "R1_CATCH_THE_FLAG");
+      [r1Submissions, candidateExamDrives] = await Promise.all([
+        fetchPendingSubmissions(supabase, "R1_CATCH_THE_FLAG"),
+        fetchCandidateExamDrives(supabase),
+      ]);
     } else if (activeTab === "r2") {
-      r2Submissions = await fetchPendingSubmissions(supabase, "R2_MAZE");
+      [r2Submissions, candidateExamDrives] = await Promise.all([
+        fetchPendingSubmissions(supabase, "R2_MAZE"),
+        fetchCandidateExamDrives(supabase),
+      ]);
     } else if (activeTab === "i1") {
       i1Submissions = await fetchPendingSubmissions(supabase, "I1_POINT_AND_SHOOT");
     } else if (activeTab === "i2") {
@@ -500,21 +556,13 @@ export default async function PromotionsReviewPage({
         r1Submissions.length === 0 ? (
           <EmptyState icon={Award} title="Nothing pending" message="Every R1 submission has already been reviewed." />
         ) : (
-          <div className="flex flex-col gap-4">
-            {r1Submissions.map((s) => (
-              <ExamReviewCard key={s.id} submission={s} />
-            ))}
-          </div>
+          <ChallengeAcceptancePanel submissions={r1Submissions} candidateDrives={candidateExamDrives} />
         )
       ) : activeTab === "r2" ? (
         r2Submissions.length === 0 ? (
           <EmptyState icon={Award} title="Nothing pending" message="Every R2 submission has already been reviewed." />
         ) : (
-          <div className="flex flex-col gap-4">
-            {r2Submissions.map((s) => (
-              <ExamReviewCard key={s.id} submission={s} />
-            ))}
-          </div>
+          <ChallengeAcceptancePanel submissions={r2Submissions} candidateDrives={candidateExamDrives} />
         )
       ) : activeTab === "i1" ? (
         i1Submissions.length === 0 ? (

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
-import { COMPASS_RANKS } from "@/lib/constants";
+import { COMPASS_RANKS, rankNameFromLevel } from "@/lib/constants";
 
 export type PromotionsReviewActionState = {
   status: "idle" | "error" | "success";
@@ -68,6 +68,155 @@ export async function gradeExam(
   return {
     status: "success",
     message: status === "passed" ? "Marked as passed." : "Resubmission requested.",
+  };
+}
+
+/** R1/R2-specific: a pending challenge submission isn't graded directly —
+ * it's accepted into a real exam drive a Marshal has already created (or is
+ * about to run), which is what the drive is actually for. This flips the
+ * selected submissions to "accepted" and auto-registers the submitter (and,
+ * for R1, their named buddy) onto that drive, so nobody has to separately
+ * remember to register the people they just accepted. */
+export async function acceptExamSubmissions(
+  submissionIds: string[],
+  driveId: string,
+): Promise<PromotionsReviewActionState> {
+  const supabase = await createClient();
+  const { user, error: authError } = await requireReviewer(supabase);
+  if (authError || !user) {
+    return { status: "error", message: authError };
+  }
+
+  if (submissionIds.length === 0) {
+    return { status: "error", message: "Select at least one submission to accept." };
+  }
+
+  const { data: submissions } = await supabase
+    .from("exam_submissions")
+    .select("id, user_id, buddy_id, status")
+    .in("id", submissionIds);
+
+  if (!submissions || submissions.length === 0) {
+    return { status: "error", message: "Couldn't find those submissions." };
+  }
+  if (submissions.some((s) => s.status !== "pending")) {
+    return { status: "error", message: "Only pending submissions can be accepted." };
+  }
+
+  const { error: updateError } = await supabase
+    .from("exam_submissions")
+    .update({ status: "accepted", exam_drive_id: driveId })
+    .in("id", submissionIds);
+
+  if (updateError) {
+    console.error("SERVER ACTION ERROR [acceptExamSubmissions]:", updateError);
+    return { status: "error", message: "Couldn't accept those submissions. Please try again." };
+  }
+
+  // Auto-register every submitter and their named buddy onto the exam
+  // drive — an already-existing registration is fine (ignored, not an
+  // error), since a buddy might already be registered from their own
+  // accepted submission.
+  const memberIds = new Set<string>();
+  for (const s of submissions) {
+    memberIds.add(s.user_id);
+    if (s.buddy_id) memberIds.add(s.buddy_id);
+  }
+
+  const { data: memberProfiles } = await supabase
+    .from("profiles")
+    .select("id, current_rank")
+    .in("id", Array.from(memberIds));
+
+  const rows = (memberProfiles ?? []).map((p) => ({
+    drive_id: driveId,
+    user_id: p.id,
+    role: "Driver" as const,
+    disclaimer_accepted: true,
+    driver_rank: rankNameFromLevel(p.current_rank),
+  }));
+
+  const { error: registerError } = await supabase
+    .from("drive_registrations")
+    .upsert(rows, { onConflict: "drive_id,user_id", ignoreDuplicates: true });
+
+  revalidatePath("/promotions-review");
+  revalidatePath(`/drives/${driveId}`);
+  revalidatePath("/profile/exams");
+
+  if (registerError) {
+    console.error("SERVER ACTION ERROR [acceptExamSubmissions register]:", registerError);
+    return {
+      status: "success",
+      message: "Accepted, but couldn't auto-register everyone — register them manually on the drive.",
+    };
+  }
+
+  return {
+    status: "success",
+    message: `Accepted ${submissions.length} submission(s) and registered everyone onto the exam drive.`,
+  };
+}
+
+/** Grades an accepted R1/R2 submission (or a buddy pair, both IDs passed
+ * together) once its exam drive has actually happened — separate from
+ * gradeExam, which still directly grades I1/I2/I3/solo-GPS submissions that
+ * don't go through the exam-drive flow. Only reachable once the linked
+ * drive is Completed, so a Marshal can't grade an exam that hasn't
+ * happened yet. */
+export async function gradeExamDriveSubmissions(
+  submissionIds: string[],
+  status: "passed" | "failed",
+): Promise<PromotionsReviewActionState> {
+  const supabase = await createClient();
+  const { user, error: authError } = await requireReviewer(supabase);
+  if (authError || !user) {
+    return { status: "error", message: authError };
+  }
+
+  if (submissionIds.length === 0) {
+    return { status: "error", message: "No submission selected." };
+  }
+
+  const { data: submissions } = await supabase
+    .from("exam_submissions")
+    .select("id, exam_drive_id, status")
+    .in("id", submissionIds);
+
+  if (!submissions || submissions.length === 0) {
+    return { status: "error", message: "Couldn't find that submission." };
+  }
+
+  const driveId = submissions[0].exam_drive_id;
+  if (!driveId || submissions.some((s) => s.exam_drive_id !== driveId)) {
+    return { status: "error", message: "Those submissions aren't linked to the same exam drive." };
+  }
+  if (submissions.some((s) => s.status !== "accepted")) {
+    return { status: "error", message: "Only accepted submissions awaiting grading can be graded here." };
+  }
+
+  const { data: drive } = await supabase.from("drives").select("status").eq("id", driveId).single();
+  if (drive?.status !== "Completed") {
+    return { status: "error", message: "This exam drive hasn't been marked Completed yet." };
+  }
+
+  const { error } = await supabase
+    .from("exam_submissions")
+    .update({ status, graded_by: user.id, graded_at: new Date().toISOString() })
+    .in("id", submissionIds);
+
+  if (error) {
+    console.error("SERVER ACTION ERROR [gradeExamDriveSubmissions]:", error);
+    return { status: "error", message: "Couldn't grade that submission. Please try again." };
+  }
+
+  revalidatePath(`/drives/${driveId}`);
+  revalidatePath("/promotions-review");
+  revalidatePath("/profile/exams");
+
+  return {
+    status: "success",
+    message: status === "passed" ? "Marked as passed." : "Marked as failed.",
   };
 }
 
@@ -213,40 +362,57 @@ export async function promoteToIntermediate(userId: string): Promise<PromotionsR
       .eq("is_approved", true),
     supabase
       .from("trip_reports")
-      .select("drive:drives(must_skills_covered)")
+      .select("drive_id, drive:drives(must_skills_covered)")
       .eq("author_id", userId)
       .eq("is_approved", true)
-      .overrideTypes<{ drive: { must_skills_covered: string[] | null } | null }[], { merge: false }>(),
+      .overrideTypes<
+        { drive_id: string | null; drive: { must_skills_covered: string[] | null } | null }[],
+        { merge: false }
+      >(),
     supabase
       .from("exam_submissions")
-      .select("exam_type, status, created_at")
+      .select("exam_type, status, exam_drive_id, created_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .overrideTypes<
-        { exam_type: "R1_CATCH_THE_FLAG" | "R2_MAZE"; status: string; created_at: string }[],
+        {
+          exam_type: "R1_CATCH_THE_FLAG" | "R2_MAZE";
+          status: string;
+          exam_drive_id: string | null;
+          created_at: string;
+        }[],
         { merge: false }
       >(),
   ]);
 
   const unlockedSkills = new Set<string>();
+  const reportedDriveIds = new Set<string>();
   for (const report of reportRows ?? []) {
     for (const skill of report.drive?.must_skills_covered ?? []) {
       unlockedSkills.add(skill);
     }
+    if (report.drive_id) reportedDriveIds.add(report.drive_id);
   }
 
-  const latestExamStatus = new Map<string, string>();
+  const latestExamByType = new Map<string, { status: string; examDriveId: string | null }>();
   for (const row of examRows ?? []) {
-    if (!latestExamStatus.has(row.exam_type)) {
-      latestExamStatus.set(row.exam_type, row.status);
+    if (!latestExamByType.has(row.exam_type)) {
+      latestExamByType.set(row.exam_type, { status: row.status, examDriveId: row.exam_drive_id });
     }
   }
+  const r1 = latestExamByType.get("R1_CATCH_THE_FLAG");
+  const r2 = latestExamByType.get("R2_MAZE");
 
   const meetsDriveCount = (approvedCount ?? 0) >= requiredCount;
   const meetsMustSkills = requiredMustSkills.every((s) => unlockedSkills.has(s));
+  // Passed alone isn't enough for either — each also needs its own approved
+  // trip report for its exam drive, matching the real club process (pass
+  // the exam, then file the report for it).
   const meetsExams =
-    latestExamStatus.get("R1_CATCH_THE_FLAG") === "passed" &&
-    latestExamStatus.get("R2_MAZE") === "passed";
+    r1?.status === "passed" &&
+    Boolean(r1.examDriveId && reportedDriveIds.has(r1.examDriveId)) &&
+    r2?.status === "passed" &&
+    Boolean(r2.examDriveId && reportedDriveIds.has(r2.examDriveId));
   const meetsIntroToInt = !gatedSkill || unlockedSkills.has(gatedSkill);
 
   if (!meetsDriveCount || !meetsMustSkills || !meetsExams || !meetsIntroToInt) {
