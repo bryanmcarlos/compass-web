@@ -3,7 +3,12 @@ import { ShieldAlert, Route } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { DriveForm } from "@/components/club/DriveForm";
 
-export default async function NewDrivePage() {
+export default async function NewDrivePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ examType?: string; title?: string }>;
+}) {
+  const { examType, title } = await searchParams;
   const supabase = await createClient();
 
   const {
@@ -50,7 +55,7 @@ export default async function NewDrivePage() {
         </p>
       </header>
 
-      <DriveForm mode="create" />
+      <DriveForm mode="create" prefill={{ title, examType }} />
     </div>
   );
 }

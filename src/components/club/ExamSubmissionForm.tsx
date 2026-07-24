@@ -1,14 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CircleCheck, CircleAlert, HourglassIcon, LoaderCircle, Send, Lock, CalendarCheck } from "lucide-react";
+import {
+  CircleCheck,
+  CircleAlert,
+  HourglassIcon,
+  LoaderCircle,
+  Send,
+  Lock,
+  CalendarCheck,
+  Search,
+  X,
+} from "lucide-react";
 import { submitExam, type ExamType } from "@/app/(app)/profile/exams/actions";
+import { Avatar } from "./Avatar";
 
 export type ExamStatus = "not_submitted" | "pending" | "accepted" | "passed" | "failed";
 
-export type BuddyOption = { id: string; name: string };
+export type BuddyOption = { id: string; name: string; username: string; avatarUrl: string | null };
 
 function StatusBadge({ status }: { status: ExamStatus }) {
   if (status === "passed") {
@@ -47,6 +58,101 @@ function StatusBadge({ status }: { status: ExamStatus }) {
     <span className="flex items-center gap-1 rounded-full bg-sand-light px-2 py-0.5 text-[10px] font-semibold text-charcoal-light/70">
       Not Submitted
     </span>
+  );
+}
+
+/** Search-as-you-type buddy picker — same filter-by-name/username pattern
+ * as the admin members search, scoped server-side to fellow Rookies who've
+ * also cleared the drives/must-skills bar (see the query in
+ * profile/exams/page.tsx), so every result here is actually a valid buddy,
+ * not just any club member. */
+function BuddyPicker({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  options: BuddyOption[];
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = options.find((o) => o.id === value) ?? null;
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(
+      (o) => o.name.toLowerCase().includes(q) || o.username.toLowerCase().includes(q),
+    );
+  }, [options, query]);
+
+  if (selected && !open) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-forest/30 bg-forest/5 px-3 py-2">
+        <Avatar name={selected.name} avatarUrl={selected.avatarUrl} className="h-7 w-7 text-xs" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-medium text-charcoal">{selected.name}</span>
+          <span className="truncate text-xs text-charcoal-light/60">@{selected.username}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            onChange("");
+            setQuery("");
+            setOpen(true);
+          }}
+          aria-label="Change buddy"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-charcoal-light/60 hover:bg-sand-light"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="relative">
+        <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-charcoal-light/60" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setOpen(true)}
+          placeholder="Search fellow Rookies by name or username…"
+          className="w-full rounded-lg border border-sand bg-off-white py-2 pr-3 pl-9 text-sm text-charcoal placeholder:text-charcoal-light/40 focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none"
+        />
+      </div>
+      {open && (
+        <div className="flex max-h-48 flex-col overflow-y-auto rounded-lg border border-sand bg-off-white shadow-sm">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-2.5 text-xs text-charcoal-light/60">
+              No eligible Rookie matches — they need their own 5 drives and must-skills done too.
+            </p>
+          ) : (
+            filtered.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => {
+                  onChange(o.id);
+                  setQuery("");
+                  setOpen(false);
+                }}
+                className="flex items-center gap-2 px-3 py-2 text-left hover:bg-sand-light"
+              >
+                <Avatar name={o.name} avatarUrl={o.avatarUrl} className="h-7 w-7 text-xs" />
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate text-sm font-medium text-charcoal">{o.name}</span>
+                  <span className="truncate text-xs text-charcoal-light/60">@{o.username}</span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -137,22 +243,14 @@ export function ExamSubmissionForm({
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           {requiresBuddy && (
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-charcoal">Buddy</label>
-              <select
-                required
-                value={buddyId}
-                onChange={(e) => setBuddyId(e.target.value)}
-                className="rounded-lg border border-sand bg-off-white px-3 py-2 text-sm text-charcoal"
-              >
-                <option value="" disabled>
-                  Select the buddy you named in your post
-                </option>
-                {buddyOptions.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
+              <label className="text-xs font-medium text-charcoal">
+                Buddy named in your challenge post
+              </label>
+              <BuddyPicker value={buddyId} onChange={setBuddyId} options={buddyOptions} />
+              <p className="text-[11px] text-charcoal-light/60">
+                Only who you did the challenge together with — real exam-day pairs are decided
+                separately at the exam drive.
+              </p>
             </div>
           )}
 

@@ -64,16 +64,21 @@ async function fetchPendingSubmissions(
     }));
 }
 
-/** Upcoming Rookie-tier drives a Marshal can accept pending R1/R2
- * submissions into — Scheduled only (a Completed one is already done, too
- * late to accept anyone into it) and target_rank 2 specifically, since R1/
- * R2 exams only make sense on a Rookie-tier drive. */
-async function fetchCandidateExamDrives(supabase: SupabaseServerClient): Promise<CandidateExamDrive[]> {
+/** Upcoming drives a Marshal can accept pending challenge submissions
+ * into — Scheduled only (a Completed one is already done, too late to
+ * accept anyone into it) and explicitly flagged with this exact exam_type
+ * (see DriveForm's "Exam Type" field) — a plain Rookie drive with no flag
+ * doesn't show up here even if the rank matches, so submissions only ever
+ * get linked to a drive actually meant to be that exam. */
+async function fetchCandidateExamDrives(
+  supabase: SupabaseServerClient,
+  examType: ExamType,
+): Promise<CandidateExamDrive[]> {
   const { data } = await supabase
     .from("drives")
     .select("id, title, drive_id_code, drive_date")
     .eq("status", "Scheduled")
-    .eq("target_rank", 2)
+    .eq("exam_type", examType)
     .order("drive_date", { ascending: true });
 
   return (data ?? []).map((d) => ({
@@ -503,12 +508,12 @@ export default async function PromotionsReviewPage({
     if (activeTab === "r1") {
       [r1Submissions, candidateExamDrives] = await Promise.all([
         fetchPendingSubmissions(supabase, "R1_CATCH_THE_FLAG"),
-        fetchCandidateExamDrives(supabase),
+        fetchCandidateExamDrives(supabase, "R1_CATCH_THE_FLAG"),
       ]);
     } else if (activeTab === "r2") {
       [r2Submissions, candidateExamDrives] = await Promise.all([
         fetchPendingSubmissions(supabase, "R2_MAZE"),
-        fetchCandidateExamDrives(supabase),
+        fetchCandidateExamDrives(supabase, "R2_MAZE"),
       ]);
     } else if (activeTab === "i1") {
       i1Submissions = await fetchPendingSubmissions(supabase, "I1_POINT_AND_SHOOT");
@@ -556,13 +561,23 @@ export default async function PromotionsReviewPage({
         r1Submissions.length === 0 ? (
           <EmptyState icon={Award} title="Nothing pending" message="Every R1 submission has already been reviewed." />
         ) : (
-          <ChallengeAcceptancePanel submissions={r1Submissions} candidateDrives={candidateExamDrives} />
+          <ChallengeAcceptancePanel
+            submissions={r1Submissions}
+            candidateDrives={candidateExamDrives}
+            examType="R1_CATCH_THE_FLAG"
+            examLabel="R1: Catch the Flag"
+          />
         )
       ) : activeTab === "r2" ? (
         r2Submissions.length === 0 ? (
           <EmptyState icon={Award} title="Nothing pending" message="Every R2 submission has already been reviewed." />
         ) : (
-          <ChallengeAcceptancePanel submissions={r2Submissions} candidateDrives={candidateExamDrives} />
+          <ChallengeAcceptancePanel
+            submissions={r2Submissions}
+            candidateDrives={candidateExamDrives}
+            examType="R2_MAZE"
+            examLabel="R2: Maze"
+          />
         )
       ) : activeTab === "i1" ? (
         i1Submissions.length === 0 ? (

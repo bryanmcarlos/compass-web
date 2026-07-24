@@ -26,6 +26,18 @@ export type DriveFormState = {
 
 const STATUSES = ["Scheduled", "Completed", "Cancelled"];
 const CAMP_SCHEDULE_TYPES = ["Before the Drive", "After the Drive"];
+// Matches exam_submissions.exam_type's own check constraint (minus
+// SOLO_GPS_DRIVE, which isn't a single-pass challenge with its own exam
+// drive) — flags a drive as the specific R1/R2/I1/I2/I3 exam event a
+// Marshal accepted challenge submissions into, so promotions-review's
+// accept flow can offer only drives actually meant for that exam.
+const EXAM_TYPES = [
+  "R1_CATCH_THE_FLAG",
+  "R2_MAZE",
+  "I1_POINT_AND_SHOOT",
+  "I2_NIGHT_RECON",
+  "I3_KING_OF_THE_HILL",
+];
 
 // Accepts the native <input type="time"> formats Postgres TIME columns also
 // accept natively: "HH:MM" and "HH:MM:SS" (24-hour).
@@ -159,6 +171,12 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
     // strings.
     .filter((skill) => allowedSkills.has(skill));
 
+  const examTypeRaw = String(formData.get("examType") ?? "").trim();
+  if (examTypeRaw && !EXAM_TYPES.includes(examTypeRaw)) {
+    return { ok: false, message: "Invalid exam type." };
+  }
+  const examType = examTypeRaw || null;
+
   const equipmentRequirements = [
     ...new Set(
       formData
@@ -271,6 +289,7 @@ function parseDriveFields(formData: FormData): ParsedDriveFields {
       equipment_requirements:
         equipmentRequirements.length > 0 ? equipmentRequirements : null,
       must_skills_covered: mustSkills.length > 0 ? mustSkills : null,
+      exam_type: examType,
       // Toggling camping off clears any previously-saved camp details rather
       // than leaving stale data behind that the UI no longer shows as set.
       has_camp: hasCamp,

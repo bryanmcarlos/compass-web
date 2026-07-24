@@ -37,7 +37,7 @@ export default async function ExamsPage() {
 
   const [
     { data: submissions, error },
-    { data: memberRows },
+    buddyOptions,
     { data: reportRows },
     { count: leadDriveCount },
     { data: registrationRows },
@@ -55,14 +55,63 @@ export default async function ExamsPage() {
         }[],
         { merge: false }
       >(),
-    // Only R1 needs a buddy — fetched regardless of rank for simplicity,
-    // unused (and harmless) when rank 3 renders I1/I2/I3 instead.
-    supabase
-      .from("profiles")
-      .select("id, username, full_name")
-      .eq("is_disabled", false)
-      .neq("id", user.id)
-      .order("username"),
+    // Only R1 (rank 2) needs a buddy — skipped entirely for rank 3. Scoped
+    // to fellow Rookies who've also cleared the drives/must-skills bar
+    // (mirrors checkChallengeEligibility in actions.ts, the real
+    // server-side gate for this) — naming someone who isn't even eligible
+    // for R1 themselves isn't a real buddy option.
+    (async (): Promise<BuddyOption[]> => {
+      if (rank !== 2) return [];
+
+      const { data: rookies } = await supabase
+        .from("profiles")
+        .select("id, username, full_name, avatar_url")
+        .eq("current_rank", 2)
+        .eq("is_disabled", false)
+        .neq("id", user.id);
+
+      if (!rookies || rookies.length === 0) return [];
+      const rookieIds = rookies.map((r) => r.id);
+
+      const { data: rookieReportRows } = await supabase
+        .from("trip_reports")
+        .select("author_id, drive:drives(must_skills_covered)")
+        .in("author_id", rookieIds)
+        .eq("is_approved", true)
+        .overrideTypes<
+          { author_id: string; drive: { must_skills_covered: string[] | null } | null }[],
+          { merge: false }
+        >();
+
+      const curriculum = COMPASS_RANKS[2];
+      const requiredDrives = curriculum.requiredDrives ?? 0;
+      const gatedSkill = curriculum.gatedFinalMustSkill;
+      const regularMustSkills = (curriculum.mustSkills ?? []).filter((s) => s !== gatedSkill);
+
+      const approvedCountByUser = new Map<string, number>();
+      const skillsByUser = new Map<string, Set<string>>();
+      for (const row of rookieReportRows ?? []) {
+        approvedCountByUser.set(row.author_id, (approvedCountByUser.get(row.author_id) ?? 0) + 1);
+        const skills = skillsByUser.get(row.author_id) ?? new Set<string>();
+        for (const skill of row.drive?.must_skills_covered ?? []) {
+          skills.add(skill);
+        }
+        skillsByUser.set(row.author_id, skills);
+      }
+
+      return rookies
+        .filter((r) => {
+          const approvedCount = approvedCountByUser.get(r.id) ?? 0;
+          const skills = skillsByUser.get(r.id) ?? new Set<string>();
+          return approvedCount >= requiredDrives && regularMustSkills.every((s) => skills.has(s));
+        })
+        .map((r) => ({
+          id: r.id,
+          name: r.full_name ?? r.username,
+          username: r.username,
+          avatarUrl: r.avatar_url,
+        }));
+    })(),
     // Same signal used everywhere else this app tracks progression —
     // approved trip reports and the must-skills their drives covered.
     supabase
@@ -131,11 +180,6 @@ export default async function ExamsPage() {
   const soloGpsSubmissions = (submissions ?? []).filter((s) => s.exam_type === "SOLO_GPS_DRIVE");
   const soloGpsPassedCount = soloGpsSubmissions.filter((s) => s.status === "passed").length;
   const soloGpsHasPending = soloGpsSubmissions.some((s) => s.status === "pending");
-
-  const buddyOptions: BuddyOption[] = (memberRows ?? []).map((m) => ({
-    id: m.id,
-    name: m.full_name ?? m.username,
-  }));
 
   // Challenges are only unlocked once the required drives and every
   // regular must-skill are done, per the club roadmap — a rank's own

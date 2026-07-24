@@ -9,7 +9,7 @@ import { BroadcastNoticeModal } from "@/components/club/BroadcastNoticeModal";
 import { DriveQuickActionButtons } from "@/components/club/DriveQuickActionButtons";
 import {
   ExamDriveGradingPanel,
-  type ExamDriveSubmissionGroup,
+  type ExamDriveSubmissionEntry,
 } from "@/components/club/ExamDriveGradingPanel";
 import type { BroadcastTemplateData } from "@/lib/broadcastTemplate";
 import { Tabs } from "@/components/club/Tabs";
@@ -257,7 +257,7 @@ export default async function DriveDetailPage({
   // other, so they run together as one more parallel stage rather than
   // three more sequential round-trips. All are no-ops (empty, no query at
   // all) for the common case of a plain member viewing a non-exam drive.
-  const [pendingReports, { cleanupDateCandidates, cleanupKeywordCandidates }, examSubmissionGroups] =
+  const [pendingReports, { cleanupDateCandidates, cleanupKeywordCandidates }, examSubmissionEntries] =
     await Promise.all([
     // Only fetched at all when the viewer can actually act on it — a plain
     // member has no use for (and shouldn't need a round-trip revealing) the
@@ -353,16 +353,18 @@ export default async function DriveDetailPage({
 
       return { cleanupDateCandidates: dateCandidates, cleanupKeywordCandidates: keywordCandidates };
     })(),
-    // Grouped so a buddy pair (each having submitted their own R1 row
-    // naming the other) renders as one card, graded together — see
-    // ExamDriveGradingPanel's doc comment.
-    (async (): Promise<ExamDriveSubmissionGroup[]> => {
+    // One row per submission — real exam-day pairing is decided live at the
+    // drive (pairs are reshuffled there, not fixed by who a member named as
+    // buddy when submitting), so grading doesn't auto-pair by buddy_id. A
+    // Marshal who wants to grade two people together just selects both
+    // rows in ExamDriveGradingPanel.
+    (async (): Promise<ExamDriveSubmissionEntry[]> => {
       if (!canReviewReports || drive.status !== "Completed") return [];
 
       const { data: examRows } = await supabase
         .from("exam_submissions")
         .select(
-          `id, user_id, buddy_id, exam_type, status,
+          `id, exam_type, status,
            submitter:profiles!exam_submissions_user_id_fkey(username, full_name, avatar_url)`,
         )
         .eq("exam_drive_id", id)
@@ -370,8 +372,6 @@ export default async function DriveDetailPage({
         .overrideTypes<
           {
             id: string;
-            user_id: string;
-            buddy_id: string | null;
             exam_type: "R1_CATCH_THE_FLAG" | "R2_MAZE";
             status: "accepted" | "passed" | "failed";
             submitter: { username: string; full_name: string | null; avatar_url: string | null } | null;
@@ -379,30 +379,15 @@ export default async function DriveDetailPage({
           { merge: false }
         >();
 
-      const groups = new Map<string, ExamDriveSubmissionGroup>();
-      for (const row of examRows ?? []) {
-        if (!row.submitter) continue;
-        const pairKey = [row.user_id, row.buddy_id ?? row.user_id].sort().join("-");
-        const key = `${row.exam_type}:${pairKey}`;
-        const memberEntry = {
-          name: row.submitter.full_name ?? row.submitter.username,
-          avatarUrl: row.submitter.avatar_url,
-        };
-        const existing = groups.get(key);
-        if (existing) {
-          existing.submissionIds.push(row.id);
-          existing.members.push(memberEntry);
-        } else {
-          groups.set(key, {
-            key,
-            examType: row.exam_type,
-            submissionIds: [row.id],
-            members: [memberEntry],
-            status: row.status,
-          });
-        }
-      }
-      return Array.from(groups.values());
+      return (examRows ?? [])
+        .filter((row) => row.submitter)
+        .map((row) => ({
+          id: row.id,
+          examType: row.exam_type,
+          status: row.status,
+          name: row.submitter!.full_name ?? row.submitter!.username,
+          avatarUrl: row.submitter!.avatar_url,
+        }));
     })(),
   ]);
 
@@ -582,7 +567,9 @@ export default async function DriveDetailPage({
         />
       )}
 
-      {examSubmissionGroups.length > 0 && <ExamDriveGradingPanel groups={examSubmissionGroups} />}
+      {examSubmissionEntries.length > 0 && (
+        <ExamDriveGradingPanel entries={examSubmissionEntries} />
+      )}
 
       <RegistrationSection
         driveId={drive.id}

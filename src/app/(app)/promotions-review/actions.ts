@@ -74,9 +74,15 @@ export async function gradeExam(
 /** R1/R2-specific: a pending challenge submission isn't graded directly —
  * it's accepted into a real exam drive a Marshal has already created (or is
  * about to run), which is what the drive is actually for. This flips the
- * selected submissions to "accepted" and auto-registers the submitter (and,
- * for R1, their named buddy) onto that drive, so nobody has to separately
- * remember to register the people they just accepted. */
+ * selected submissions to "accepted" and auto-registers each submitter onto
+ * that drive, so nobody has to separately remember to register the people
+ * they just accepted.
+ *
+ * Deliberately does NOT also register the buddy named on an R1 submission —
+ * that name is just who a member claims to have posted the challenge with,
+ * not their real exam-day pairing. Real pairs are shuffled at the drive
+ * itself, so if a buddy also needs to attend, their own submission should
+ * be selected and accepted too, same as anyone else's. */
 export async function acceptExamSubmissions(
   submissionIds: string[],
   driveId: string,
@@ -93,7 +99,7 @@ export async function acceptExamSubmissions(
 
   const { data: submissions } = await supabase
     .from("exam_submissions")
-    .select("id, user_id, buddy_id, status")
+    .select("id, user_id, status")
     .in("id", submissionIds);
 
   if (!submissions || submissions.length === 0) {
@@ -113,15 +119,7 @@ export async function acceptExamSubmissions(
     return { status: "error", message: "Couldn't accept those submissions. Please try again." };
   }
 
-  // Auto-register every submitter and their named buddy onto the exam
-  // drive — an already-existing registration is fine (ignored, not an
-  // error), since a buddy might already be registered from their own
-  // accepted submission.
-  const memberIds = new Set<string>();
-  for (const s of submissions) {
-    memberIds.add(s.user_id);
-    if (s.buddy_id) memberIds.add(s.buddy_id);
-  }
+  const memberIds = new Set(submissions.map((s) => s.user_id));
 
   const { data: memberProfiles } = await supabase
     .from("profiles")

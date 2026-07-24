@@ -35,6 +35,19 @@ import { CopyToClipboardButton } from "@/components/club/CopyToClipboardButton";
 
 const STATUSES: DriveStatus[] = ["Scheduled", "Completed", "Cancelled"];
 
+// Flags this drive as the specific exam event a Marshal accepted challenge
+// submissions into — promotions-review's accept flow only offers drives
+// flagged for the matching exam type, so this is what makes a drive show
+// up there at all.
+const EXAM_TYPE_OPTIONS = [
+  { value: "", label: "None — regular drive" },
+  { value: "R1_CATCH_THE_FLAG", label: "R1: Catch the Flag (Rookie)" },
+  { value: "R2_MAZE", label: "R2: Maze (Rookie)" },
+  { value: "I1_POINT_AND_SHOOT", label: "I1: Point & Shoot (Intermediate)" },
+  { value: "I2_NIGHT_RECON", label: "I2: Night Recon (Intermediate)" },
+  { value: "I3_KING_OF_THE_HILL", label: "I3: King of the Hill (Intermediate)" },
+];
+
 const STANDARD_EQUIPMENT: string[] = [
   "4x4 vehicle",
   "UHF Radio",
@@ -81,6 +94,7 @@ export type DriveFormValues = {
   max_drivers: number;
   equipment_requirements: string[] | null;
   must_skills_covered: string[] | null;
+  exam_type: string | null;
   banner_url: string | null;
   has_camp: boolean;
   camp_date: string | null;
@@ -114,14 +128,18 @@ type TextFieldsState = {
   campLocation: string;
   campCoordinates: string;
   campScheduleType: string;
+  examType: string;
 };
 
-function buildInitialFields(initialValues?: DriveFormValues): TextFieldsState {
+function buildInitialFields(
+  initialValues?: DriveFormValues,
+  prefill?: { title?: string; examType?: string },
+): TextFieldsState {
   return {
     // The field only ever shows the marshal's clean base title — the
     // "NWB - " / "ROK - " / etc. prefix is applied server-side from the
     // Target Rank, never typed or displayed here.
-    title: stripDriveTitlePrefix(initialValues?.title ?? ""),
+    title: stripDriveTitlePrefix(initialValues?.title ?? prefill?.title ?? ""),
     status: initialValues?.status ?? "Scheduled",
     driveDate: initialValues?.drive_date ?? "",
     location: initialValues?.location ?? "",
@@ -142,6 +160,7 @@ function buildInitialFields(initialValues?: DriveFormValues): TextFieldsState {
     campLocation: initialValues?.camp_location ?? "",
     campCoordinates: initialValues?.camp_coordinates ?? "",
     campScheduleType: initialValues?.camp_schedule_type ?? CAMP_SCHEDULE_TYPES[0],
+    examType: initialValues?.exam_type ?? prefill?.examType ?? "",
   };
 }
 
@@ -150,9 +169,14 @@ const initialState: DriveFormState = { status: "idle", message: null };
 export function DriveForm({
   mode,
   initialValues,
+  prefill,
 }: {
   mode: "create" | "edit";
   initialValues?: DriveFormValues;
+  /** Create-mode only — pre-fills the title/exam type when arriving from
+   * promotions-review's "Create New Exam Drive" link, so a Marshal doesn't
+   * have to retype the exam context or remember to flag it afterward. */
+  prefill?: { title?: string; examType?: string };
 }) {
   const action = mode === "create" ? createDrive : updateDrive;
   const [state, formAction, pending] = useActionState(action, initialState);
@@ -167,7 +191,7 @@ export function DriveForm({
   // very next render re-applies the real value from state, so a failed
   // submission never wipes what the marshal typed.
   const [fields, setFields] = useState<TextFieldsState>(() =>
-    buildInitialFields(initialValues),
+    buildInitialFields(initialValues, prefill),
   );
   const [allowedRanks, setAllowedRanks] = useState<number[]>(
     () => initialValues?.allowed_ranks?.map(Number) ?? [1],
@@ -898,6 +922,29 @@ export function DriveForm({
             ))}
           </div>
         )}
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-sand pt-6">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-charcoal">
+          <GraduationCap className="h-4 w-4 text-forest" />
+          Exam Type
+        </h2>
+        <p className="text-xs text-charcoal-light/70">
+          Flags this as the specific exam drive a Marshal accepts challenge submissions
+          into on Promotions Review — leave as &quot;None&quot; for a regular drive.
+        </p>
+        <select
+          name="examType"
+          value={fields.examType}
+          onChange={handleFieldChange}
+          className="w-full rounded-lg border border-sand bg-off-white px-3 py-2 text-base text-charcoal focus:border-forest focus:ring-2 focus:ring-forest/20 focus:outline-none sm:w-auto"
+        >
+          {EXAM_TYPE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {state.status !== "idle" && state.message && (

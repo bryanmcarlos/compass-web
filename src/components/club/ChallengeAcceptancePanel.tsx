@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LoaderCircle, Send, Users, CalendarCheck } from "lucide-react";
+import { LoaderCircle, Send, Users, CalendarCheck, Plus } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { formatRelativeTime } from "@/lib/format";
 import { acceptExamSubmissions } from "@/app/(app)/promotions-review/actions";
@@ -25,9 +26,15 @@ export type CandidateExamDrive = {
 export function ChallengeAcceptancePanel({
   submissions,
   candidateDrives,
+  examType,
+  examLabel,
 }: {
   submissions: ExamSubmissionReview[];
+  /** Already scoped server-side to Scheduled drives flagged with this exact
+   * exam_type — see fetchCandidateExamDrives. */
   candidateDrives: CandidateExamDrive[];
+  examType: string;
+  examLabel: string;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -58,12 +65,20 @@ export function ChallengeAcceptancePanel({
     });
   }
 
+  const createDriveHref = `/drives/new?examType=${encodeURIComponent(examType)}&title=${encodeURIComponent(`${examLabel} Exam Drive`)}`;
+
   return (
     <div className="flex flex-col gap-4">
       {candidateDrives.length === 0 && (
-        <p className="rounded-lg border border-sand bg-sand-light px-3 py-2.5 text-xs text-charcoal-light/80">
-          No upcoming Rookie-tier drive exists yet to accept these into — post one via New Drive
-          first, then come back here to accept submissions into it.
+        <p className="flex flex-wrap items-center gap-1.5 rounded-lg border border-sand bg-sand-light px-3 py-2.5 text-xs text-charcoal-light/80">
+          No upcoming drive is flagged for {examLabel} yet.
+          <Link
+            href={createDriveHref}
+            className="flex items-center gap-1 font-semibold text-forest hover:underline"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Create the Exam Drive
+          </Link>
         </p>
       )}
 
@@ -125,6 +140,13 @@ export function ChallengeAcceptancePanel({
               </option>
             ))}
           </select>
+          <Link
+            href={createDriveHref}
+            className="flex w-fit items-center gap-1 text-xs font-medium text-forest hover:underline"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Create another exam drive
+          </Link>
         </label>
 
         <button
