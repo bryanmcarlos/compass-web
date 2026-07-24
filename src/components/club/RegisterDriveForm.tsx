@@ -12,6 +12,7 @@ import {
   Phone,
   Car,
   X,
+  GraduationCap,
 } from "lucide-react";
 import {
   registerForDrive,
@@ -31,6 +32,7 @@ export function RegisterDriveForm({
   driveId,
   availableRoles,
   hasCamp,
+  mustSkillsCovered,
   profileComplete,
   initialMobileNumber,
   initialCarDetails,
@@ -42,6 +44,11 @@ export function RegisterDriveForm({
   availableRoles: RegistrationRole[];
   /** Whether this drive offers optional camping — shows the RSVP checkbox when true. */
   hasCamp: boolean;
+  /** Curriculum must-skills this drive covers (drives.must_skills_covered) —
+   * surfaced here so a member knows, before registering, that joining is a
+   * chance to unlock progress toward their next rank, not just after the
+   * fact on their profile. Empty when the drive covers none. */
+  mustSkillsCovered: string[];
   /** True when the member's profile already has both mobile_number and
    * car_details set. False intercepts the first submit attempt with a modal
    * instead of registering — the roster depends on both being real. */
@@ -241,6 +248,17 @@ export function RegisterDriveForm({
             .
           </p>
         </>
+      )}
+
+      {mustSkillsCovered.length > 0 && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-forest/30 bg-forest/5 px-3 py-3 text-sm text-forest-dark">
+          <GraduationCap className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            <span className="font-semibold">Must-Skill opportunity:</span> this drive covers{" "}
+            {mustSkillsCovered.join(", ")}. Submit an approved trip report afterward to unlock{" "}
+            {mustSkillsCovered.length === 1 ? "it" : "them"} toward your next rank.
+          </span>
+        </div>
       )}
 
       {hasCamp && (

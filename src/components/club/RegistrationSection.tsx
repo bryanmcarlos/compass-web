@@ -23,6 +23,7 @@ export function RegistrationSection({
   userRankTitle,
   availableRoles,
   hasCamp,
+  mustSkillsCovered,
   profileComplete,
   initialMobileNumber,
   initialCarDetails,
@@ -34,6 +35,7 @@ export function RegistrationSection({
   userRankTitle: string | undefined;
   availableRoles: RegistrationRole[];
   hasCamp: boolean;
+  mustSkillsCovered: string[];
   profileComplete: boolean;
   initialMobileNumber: string | null;
   initialCarDetails: string | null;
@@ -131,6 +133,7 @@ export function RegistrationSection({
       driveId={driveId}
       availableRoles={availableRoles}
       hasCamp={hasCamp}
+      mustSkillsCovered={mustSkillsCovered}
       profileComplete={profileComplete}
       initialMobileNumber={initialMobileNumber}
       initialCarDetails={initialCarDetails}

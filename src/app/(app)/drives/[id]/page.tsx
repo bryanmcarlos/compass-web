@@ -54,6 +54,7 @@ type DriveDetail = {
   is_all_levels: boolean;
   max_drivers: number;
   equipment_requirements: string[] | null;
+  must_skills_covered: string[] | null;
   banner_url: string | null;
   has_camp: boolean;
   camp_date: string | null;
@@ -107,7 +108,7 @@ export default async function DriveDetailPage({
        meeting_point_name, coordinates, exit_location, exit_location_map_url,
        nearest_petrol_station, nearest_petrol_station_map_url, map_url,
        meeting_time, drive_start_time, drive_end_time,
-       radio_frequency, target_rank, allowed_ranks, is_all_levels, max_drivers, equipment_requirements, banner_url,
+       radio_frequency, target_rank, allowed_ranks, is_all_levels, max_drivers, equipment_requirements, must_skills_covered, banner_url,
        has_camp, camp_date, camp_time, camp_location, camp_coordinates, camp_schedule_type,
        drive_notes,
        lead_marshal:profiles(username, full_name, current_rank)`,
@@ -512,6 +513,7 @@ export default async function DriveDetailPage({
         userRankTitle={userRankTitle}
         availableRoles={availableRoles}
         hasCamp={drive.has_camp}
+        mustSkillsCovered={drive.must_skills_covered ?? []}
         profileComplete={Boolean(myMobileNumber) && Boolean(myCarDetails)}
         initialMobileNumber={myMobileNumber}
         initialCarDetails={myCarDetails}
