@@ -6,22 +6,33 @@ import { CircleCheck, RotateCcw, LoaderCircle, GraduationCap } from "lucide-reac
 import { Avatar } from "./Avatar";
 import { gradeExamDriveSubmissions } from "@/app/(app)/promotions-review/actions";
 
+export type ExamDriveExamType =
+  | "R1_CATCH_THE_FLAG"
+  | "R2_MAZE"
+  | "I1_POINT_AND_SHOOT"
+  | "I2_NIGHT_RECON"
+  | "I3_KING_OF_THE_HILL";
+
 export type ExamDriveSubmissionEntry = {
   id: string;
-  examType: "R1_CATCH_THE_FLAG" | "R2_MAZE";
+  examType: ExamDriveExamType;
   status: "accepted" | "passed" | "failed";
   name: string;
   avatarUrl: string | null;
 };
 
-const EXAM_LABEL: Record<ExamDriveSubmissionEntry["examType"], string> = {
+const EXAM_LABEL: Record<ExamDriveExamType, string> = {
   R1_CATCH_THE_FLAG: "R1: Catch the Flag",
   R2_MAZE: "R2: Maze",
+  I1_POINT_AND_SHOOT: "I1: Point & Shoot",
+  I2_NIGHT_RECON: "I2: Night Recon",
+  I3_KING_OF_THE_HILL: "I3: King of the Hill",
 };
 
-/** Shown on a Completed drive that was accepted as an R1/R2 exam drive —
- * lets a Marshal grade each accepted member. Deliberately doesn't auto-pair
- * by the buddy named at submission time — real exam-day pairs are
+/** Shown on a Completed drive that was accepted as an R1/R2/I1/I2/I3 exam
+ * drive — lets a Marshal grade each accepted member. R1 is the only one of
+ * these with a named buddy at submission time, and even there this
+ * deliberately doesn't auto-pair by it — real exam-day pairs are
  * reshuffled live at the drive, not fixed by that name, so a Marshal
  * selects whoever was actually paired (or grades solo) via the checkboxes
  * here and grades them together in one action. */

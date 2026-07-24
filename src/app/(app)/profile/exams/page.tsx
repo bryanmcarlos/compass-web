@@ -318,6 +318,7 @@ export default async function ExamsPage() {
                 requiresBuddy={false}
                 buddyOptions={[]}
                 locked={!challengesUnlocked}
+                examDrive={examDriveByType.get("I1_POINT_AND_SHOOT") ?? null}
               />
               <ExamSubmissionForm
                 examType="I2_NIGHT_RECON"
@@ -327,6 +328,7 @@ export default async function ExamsPage() {
                 requiresBuddy={false}
                 buddyOptions={[]}
                 locked={!challengesUnlocked}
+                examDrive={examDriveByType.get("I2_NIGHT_RECON") ?? null}
               />
               <ExamSubmissionForm
                 examType="I3_KING_OF_THE_HILL"
@@ -336,6 +338,7 @@ export default async function ExamsPage() {
                 requiresBuddy={false}
                 buddyOptions={[]}
                 locked={!challengesUnlocked}
+                examDrive={examDriveByType.get("I3_KING_OF_THE_HILL") ?? null}
               />
 
               <SoloGpsDriveForm

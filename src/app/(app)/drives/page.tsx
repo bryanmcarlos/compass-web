@@ -35,6 +35,7 @@ type UpcomingDrive = {
   allowed_ranks: string[];
   is_all_levels: boolean;
   max_drivers: number;
+  exam_type: string | null;
 };
 
 type CompletedDrive = {
@@ -136,6 +137,7 @@ function UpcomingCard({
           allowedRanks: drive.allowed_ranks.map(Number),
           isAllLevels: drive.is_all_levels,
           hasSupervisingMarshal: false,
+          examType: drive.exam_type,
         }).length === 0);
   const requiredRank = CLUB_CONFIG.ranks.find((r) => r.level === drive.target_rank);
 
@@ -316,7 +318,7 @@ export default async function DrivesPage({
     const { data, error: fetchError } = await supabase
       .from("drives")
       .select(
-        "id, drive_id_code, title, drive_date, drive_start_time, location, meeting_point_name, target_rank, allowed_ranks, is_all_levels, max_drivers",
+        "id, drive_id_code, title, drive_date, drive_start_time, location, meeting_point_name, target_rank, allowed_ranks, is_all_levels, max_drivers, exam_type",
       )
       .eq("status", "Scheduled")
       .order("drive_date", { ascending: true })

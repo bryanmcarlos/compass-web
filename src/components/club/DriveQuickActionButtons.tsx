@@ -8,19 +8,26 @@ import {
   markDriveCompleted,
 } from "@/app/(app)/drives/actions";
 import { useDriveRegistration } from "@/components/club/DriveRegistrationContext";
+import type { DriveStatus } from "@/components/club/DriveBadges";
 
 /** Sits beside "Edit Drive" in the Marshal Logistics Control Panel — quick
  * status flips that don't need the full edit form. Marshals hitting "Mark
  * as Completed" too early just get the server's rejection inline (the real
  * enforcement lives in markDriveCompleted itself); Admins get a confirm
- * prompt first since they're allowed to override it. */
+ * prompt first since they're allowed to override it. Both actions only
+ * make sense on a still-Scheduled drive — once it's Completed or
+ * Cancelled, neither renders (the server actions reject them too, this is
+ * just so a Marshal doesn't see a live-looking button that'll only ever
+ * error). */
 export function DriveQuickActionButtons({
   driveId,
   isAdmin,
+  status,
   registrationClosed,
 }: {
   driveId: string;
   isAdmin: boolean;
+  status: DriveStatus;
   registrationClosed: boolean;
 }) {
   const router = useRouter();
@@ -31,8 +38,10 @@ export function DriveQuickActionButtons({
   const driveRegistration = useDriveRegistration();
   // Falls back to the prop when rendered without a provider — same
   // fallback convention as DriveHero/RegistrationSection.
+  const effectiveStatus = driveRegistration?.state.status ?? status;
   const effectiveRegistrationClosed =
     driveRegistration?.state.registrationClosed ?? registrationClosed;
+  const isScheduled = effectiveStatus === "Scheduled";
 
   function handleToggleRegistration() {
     setMessage(null);
@@ -69,37 +78,44 @@ export function DriveQuickActionButtons({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={handleToggleRegistration}
-          disabled={isPending}
-          className="flex items-center gap-1.5 rounded-lg border border-sand bg-off-white px-3 py-2 text-xs font-semibold text-charcoal transition-colors hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isPending ? (
-            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-          ) : effectiveRegistrationClosed ? (
-            <LockOpen className="h-3.5 w-3.5" />
-          ) : (
-            <Lock className="h-3.5 w-3.5" />
-          )}
-          {effectiveRegistrationClosed ? "Reopen Registration" : "Close Registration"}
-        </button>
+      {isScheduled ? (
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={handleToggleRegistration}
+            disabled={isPending}
+            className="flex items-center gap-1.5 rounded-lg border border-sand bg-off-white px-3 py-2 text-xs font-semibold text-charcoal transition-colors hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isPending ? (
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : effectiveRegistrationClosed ? (
+              <LockOpen className="h-3.5 w-3.5" />
+            ) : (
+              <Lock className="h-3.5 w-3.5" />
+            )}
+            {effectiveRegistrationClosed ? "Reopen Registration" : "Close Registration"}
+          </button>
 
-        <button
-          type="button"
-          onClick={handleMarkCompleted}
-          disabled={isPending}
-          className="flex items-center gap-1.5 rounded-lg border border-sand bg-off-white px-3 py-2 text-xs font-semibold text-charcoal transition-colors hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isPending ? (
-            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <CircleCheck className="h-3.5 w-3.5" />
-          )}
-          Mark as Completed
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={handleMarkCompleted}
+            disabled={isPending}
+            className="flex items-center gap-1.5 rounded-lg border border-sand bg-off-white px-3 py-2 text-xs font-semibold text-charcoal transition-colors hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isPending ? (
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CircleCheck className="h-3.5 w-3.5" />
+            )}
+            Mark as Completed
+          </button>
+        </div>
+      ) : (
+        <p className="text-xs text-charcoal-light/60">
+          This drive is marked {effectiveStatus} — registration and completion actions no longer
+          apply.
+        </p>
+      )}
 
       {message && (
         <p

@@ -516,11 +516,20 @@ export default async function PromotionsReviewPage({
         fetchCandidateExamDrives(supabase, "R2_MAZE"),
       ]);
     } else if (activeTab === "i1") {
-      i1Submissions = await fetchPendingSubmissions(supabase, "I1_POINT_AND_SHOOT");
+      [i1Submissions, candidateExamDrives] = await Promise.all([
+        fetchPendingSubmissions(supabase, "I1_POINT_AND_SHOOT"),
+        fetchCandidateExamDrives(supabase, "I1_POINT_AND_SHOOT"),
+      ]);
     } else if (activeTab === "i2") {
-      i2Submissions = await fetchPendingSubmissions(supabase, "I2_NIGHT_RECON");
+      [i2Submissions, candidateExamDrives] = await Promise.all([
+        fetchPendingSubmissions(supabase, "I2_NIGHT_RECON"),
+        fetchCandidateExamDrives(supabase, "I2_NIGHT_RECON"),
+      ]);
     } else if (activeTab === "i3") {
-      i3Submissions = await fetchPendingSubmissions(supabase, "I3_KING_OF_THE_HILL");
+      [i3Submissions, candidateExamDrives] = await Promise.all([
+        fetchPendingSubmissions(supabase, "I3_KING_OF_THE_HILL"),
+        fetchCandidateExamDrives(supabase, "I3_KING_OF_THE_HILL"),
+      ]);
     } else if (activeTab === "solo-gps") {
       soloGpsSubmissions = await fetchPendingSubmissions(supabase, "SOLO_GPS_DRIVE");
     } else if (activeTab === "ready") {
@@ -583,31 +592,34 @@ export default async function PromotionsReviewPage({
         i1Submissions.length === 0 ? (
           <EmptyState icon={Award} title="Nothing pending" message="Every I1 submission has already been reviewed." />
         ) : (
-          <div className="flex flex-col gap-4">
-            {i1Submissions.map((s) => (
-              <ExamReviewCard key={s.id} submission={s} />
-            ))}
-          </div>
+          <ChallengeAcceptancePanel
+            submissions={i1Submissions}
+            candidateDrives={candidateExamDrives}
+            examType="I1_POINT_AND_SHOOT"
+            examLabel="I1: Point & Shoot"
+          />
         )
       ) : activeTab === "i2" ? (
         i2Submissions.length === 0 ? (
           <EmptyState icon={Award} title="Nothing pending" message="Every I2 submission has already been reviewed." />
         ) : (
-          <div className="flex flex-col gap-4">
-            {i2Submissions.map((s) => (
-              <ExamReviewCard key={s.id} submission={s} />
-            ))}
-          </div>
+          <ChallengeAcceptancePanel
+            submissions={i2Submissions}
+            candidateDrives={candidateExamDrives}
+            examType="I2_NIGHT_RECON"
+            examLabel="I2: Night Recon"
+          />
         )
       ) : activeTab === "i3" ? (
         i3Submissions.length === 0 ? (
           <EmptyState icon={Award} title="Nothing pending" message="Every I3 submission has already been reviewed." />
         ) : (
-          <div className="flex flex-col gap-4">
-            {i3Submissions.map((s) => (
-              <ExamReviewCard key={s.id} submission={s} />
-            ))}
-          </div>
+          <ChallengeAcceptancePanel
+            submissions={i3Submissions}
+            candidateDrives={candidateExamDrives}
+            examType="I3_KING_OF_THE_HILL"
+            examLabel="I3: King of the Hill"
+          />
         )
       ) : activeTab === "solo-gps" ? (
         soloGpsSubmissions.length === 0 ? (

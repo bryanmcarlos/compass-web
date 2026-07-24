@@ -632,6 +632,22 @@ export async function setRegistrationClosed(
     return { status: "error", message: "Only Marshals and Admins can manage registration." };
   }
 
+  const { data: drive, error: fetchError } = await supabase
+    .from("drives")
+    .select("status")
+    .eq("id", driveId)
+    .single();
+
+  if (fetchError || !drive) {
+    return { status: "error", message: "Couldn't find that drive." };
+  }
+  if (drive.status !== "Scheduled") {
+    return {
+      status: "error",
+      message: `Registration can't be managed on a drive marked ${drive.status}.`,
+    };
+  }
+
   const { error } = await supabase
     .from("drives")
     .update({ registration_closed: closed })
@@ -672,12 +688,15 @@ export async function markDriveCompleted(
 
   const { data: drive, error: fetchError } = await supabase
     .from("drives")
-    .select("drive_date, drive_end_time")
+    .select("drive_date, drive_end_time, status")
     .eq("id", driveId)
     .single();
 
   if (fetchError || !drive) {
     return { status: "error", message: "Couldn't find that drive." };
+  }
+  if (drive.status === "Completed") {
+    return { status: "error", message: "This drive is already marked Completed." };
   }
 
   const finishAt = new Date(

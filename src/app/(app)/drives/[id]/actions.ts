@@ -98,7 +98,9 @@ export async function registerForDrive(
         .single(),
       supabase
         .from("drives")
-        .select("target_rank, max_drivers, has_camp, allowed_ranks, is_all_levels, status, registration_closed")
+        .select(
+          "target_rank, max_drivers, has_camp, allowed_ranks, is_all_levels, status, registration_closed, exam_type",
+        )
         .eq("id", driveId)
         .single(),
     ]);
@@ -151,6 +153,7 @@ export async function registerForDrive(
           allowedRanks: drive.allowed_ranks.map(Number),
           isAllLevels: drive.is_all_levels,
           hasSupervisingMarshal: await hasSupervisingMarshal(supabase, driveId),
+          examType: drive.exam_type,
         });
 
   if (availableRoles.length === 0) {

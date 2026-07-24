@@ -59,6 +59,7 @@ type DriveDetail = {
   max_drivers: number;
   equipment_requirements: string[] | null;
   must_skills_covered: string[] | null;
+  exam_type: string | null;
   banner_url: string | null;
   has_camp: boolean;
   camp_date: string | null;
@@ -128,7 +129,7 @@ export default async function DriveDetailPage({
          meeting_point_name, coordinates, exit_location, exit_location_map_url,
          nearest_petrol_station, nearest_petrol_station_map_url, map_url,
          meeting_time, drive_start_time, drive_end_time,
-         radio_frequency, target_rank, allowed_ranks, is_all_levels, max_drivers, equipment_requirements, must_skills_covered, banner_url,
+         radio_frequency, target_rank, allowed_ranks, is_all_levels, max_drivers, equipment_requirements, must_skills_covered, exam_type, banner_url,
          has_camp, camp_date, camp_time, camp_location, camp_coordinates, camp_schedule_type,
          drive_notes,
          lead_marshal:profiles(username, full_name, current_rank)`,
@@ -372,7 +373,7 @@ export default async function DriveDetailPage({
         .overrideTypes<
           {
             id: string;
-            exam_type: "R1_CATCH_THE_FLAG" | "R2_MAZE";
+            exam_type: ExamDriveSubmissionEntry["examType"];
             status: "accepted" | "passed" | "failed";
             submitter: { username: string; full_name: string | null; avatar_url: string | null } | null;
           }[],
@@ -419,6 +420,7 @@ export default async function DriveDetailPage({
           allowedRanks: drive.allowed_ranks.map(Number),
           isAllLevels: drive.is_all_levels,
           hasSupervisingMarshal,
+          examType: drive.exam_type,
         });
 
   // Empty role groups are omitted entirely (no dangling "SUPPORTS" header
@@ -615,6 +617,7 @@ export default async function DriveDetailPage({
             <DriveQuickActionButtons
               driveId={drive.id}
               isAdmin={isAdmin}
+              status={drive.status}
               registrationClosed={drive.registration_closed}
             />
           </div>

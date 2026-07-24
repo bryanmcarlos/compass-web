@@ -30,6 +30,10 @@ export type RoleEligibilityInput = {
   isAllLevels: boolean;
   /** Is at least one full Marshal (rank 5) already registered as 'Support' on this drive? */
   hasSupervisingMarshal: boolean;
+  /** Set (drives.exam_type) when this drive is the specific R1/R2/I1/I2/I3
+   * exam event a Marshal accepted challenge submissions into — overrides
+   * every rule below with its own, much narrower one. */
+  examType?: string | null;
 };
 
 /**
@@ -48,7 +52,21 @@ export function getAvailableRoles({
   allowedRanks,
   isAllLevels,
   hasSupervisingMarshal,
+  examType,
 }: RoleEligibilityInput): RegistrationRole[] {
+  // An exam drive's whole point is testing the candidates a Marshal already
+  // accepted onto it via the challenge-acceptance flow — the rank actually
+  // being examined never gets a self-registration path here at all (a
+  // Rookie can't just sign up for an R1 exam drive the way they would any
+  // other drive), and everyone senior can only Support, never Drive or
+  // Lead, since the driving is reserved for whoever's being tested. The
+  // drive's own lead_marshal_id already covers "who's in charge," so
+  // there's no Lead registration role to hand out here either.
+  if (examType) {
+    if (currentRank === targetRank) return [];
+    return ["Support"];
+  }
+
   switch (currentRank) {
     case 5: // Marshal — always a Lead or Support option, never a plain Driver.
       return ["Lead", "Support"];
