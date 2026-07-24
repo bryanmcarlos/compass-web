@@ -3,6 +3,7 @@ import { Compass, Route, Calendar, Clock, MapPin, UserRound, Lock, Plus, CheckSq
 import { createClient } from "@/utils/supabase/server";
 import { EmptyState, ErrorState } from "@/components/club/StateMessage";
 import { RankBadge } from "@/components/club/RankBadge";
+import { LinkPendingIndicator } from "@/components/club/LinkPendingIndicator";
 import { Tabs } from "@/components/club/Tabs";
 import { ArchiveDriveList, type ArchiveDrive } from "./ArchiveDriveList";
 import { SwipeToDeleteRow } from "@/components/club/SwipeToDeleteRow";
@@ -142,7 +143,10 @@ function UpcomingCard({
     <>
       <div className="flex items-start justify-between gap-3">
         <h2 className="text-lg font-semibold text-charcoal">{drive.title}</h2>
-        <RankBadge rank={rankNameFromLevel(drive.target_rank)} size="xs" className="shrink-0" />
+        <span className="flex shrink-0 items-center gap-1.5">
+          <LinkPendingIndicator className="h-3.5 w-3.5 text-forest" />
+          <RankBadge rank={rankNameFromLevel(drive.target_rank)} size="xs" />
+        </span>
       </div>
       <div className="flex flex-col gap-2 text-sm text-charcoal-light/90">
         <span className="flex items-center gap-1.5">
@@ -207,7 +211,7 @@ function UpcomingCard({
   return (
     <Link
       href={`/drives/${drive.id}`}
-      className="flex flex-col gap-4 rounded-2xl border border-sand bg-off-white p-5 shadow-sm transition-shadow hover:shadow-md"
+      className="flex flex-col gap-4 rounded-2xl border border-sand bg-off-white p-5 shadow-sm transition-all hover:shadow-md active:scale-[0.98]"
     >
       {body}
     </Link>
@@ -226,11 +230,14 @@ function CompletedCard({
   return (
     <Link
       href={`/drives/${drive.id}${hasReports ? "?tab=reports" : ""}`}
-      className="flex flex-col gap-4 rounded-2xl border border-sand bg-off-white p-5 shadow-sm transition-shadow hover:shadow-md"
+      className="flex flex-col gap-4 rounded-2xl border border-sand bg-off-white p-5 shadow-sm transition-all hover:shadow-md active:scale-[0.98]"
     >
       <div className="flex items-start justify-between gap-3">
         <h2 className="text-lg font-semibold text-charcoal">{drive.title}</h2>
-        <RankBadge rank={rankNameFromLevel(drive.target_rank)} size="xs" className="shrink-0" />
+        <span className="flex shrink-0 items-center gap-1.5">
+          <LinkPendingIndicator className="h-3.5 w-3.5 text-forest" />
+          <RankBadge rank={rankNameFromLevel(drive.target_rank)} size="xs" />
+        </span>
       </div>
       <div className="flex flex-col gap-2 text-sm text-charcoal-light/90">
         {drive.lead_marshal && (

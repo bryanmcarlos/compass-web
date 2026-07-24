@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
 import { RankBadge } from "@/components/club/RankBadge";
+import { LinkPendingIndicator } from "@/components/club/LinkPendingIndicator";
 import { StatusIndicator, type DriveStatus } from "@/components/club/DriveBadges";
 import { SwipeToDeleteRow } from "@/components/club/SwipeToDeleteRow";
 import { rankNameFromLevel, CLUB_CONFIG, type RankName } from "@/lib/constants";
@@ -91,7 +92,7 @@ export function ArchiveDriveList({
               >
                 <Link
                   href={`/drives/${drive.id}`}
-                  className="flex items-center gap-3 rounded-lg border border-sand bg-off-white px-3 py-2 transition-colors hover:border-primary/30 hover:bg-primary/5"
+                  className="flex items-center gap-3 rounded-lg border border-sand bg-off-white px-3 py-2 transition-colors active:scale-[0.98] hover:border-primary/30 hover:bg-primary/5"
                 >
                   <span className="hidden font-mono text-xs text-charcoal-light/50 uppercase sm:inline">
                     {drive.drive_id_code}
@@ -112,6 +113,7 @@ export function ArchiveDriveList({
                     size="xs"
                     className="shrink-0 text-[11px]"
                   />
+                  <LinkPendingIndicator className="h-3.5 w-3.5 shrink-0 text-forest" />
                 </Link>
               </SwipeToDeleteRow>
             </li>

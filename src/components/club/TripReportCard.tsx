@@ -5,6 +5,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { BadgeCheck, HourglassIcon, MapPin, Route } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { RankBadge } from "./RankBadge";
+import { LinkPendingIndicator } from "./LinkPendingIndicator";
 import { rankNameFromLevel } from "@/lib/constants";
 import { DeleteReportButton } from "./DeleteReportButton";
 import { PhotoGallery } from "./PhotoGallery";
@@ -140,8 +141,12 @@ export function TripReportCard({
   }
 
   return (
-    <Link href={`/trip-reports/${report.id}`} className="block">
+    <Link
+      href={`/trip-reports/${report.id}`}
+      className="relative block transition-transform active:scale-[0.99]"
+    >
       {body}
+      <LinkPendingIndicator className="absolute right-4 bottom-4 h-4 w-4 text-forest sm:right-5 sm:bottom-5" />
     </Link>
   );
 }

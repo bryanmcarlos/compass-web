@@ -147,3 +147,22 @@ dialog {
 dialog::backdrop {
   background-color: color-mix(in srgb, var(--color-charcoal) 50%, transparent);
 }
+
+/* LinkPendingIndicator — hidden by default, only fades in once a Link's
+   navigation has stayed pending for 120ms, so prefetched/instant
+   navigations never flash it. */
+.link-pending-spinner {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.link-pending-spinner[data-pending="true"] {
+  visibility: visible;
+  animation: link-pending-fade-in 150ms ease-in 120ms forwards;
+}
+
+@keyframes link-pending-fade-in {
+  to {
+    opacity: 1;
+  }
+}

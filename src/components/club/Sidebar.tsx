@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { Logo } from "./Logo";
+import { LinkPendingIndicator } from "./LinkPendingIndicator";
 import { CLUB_CONFIG } from "@/lib/constants";
 
 type NavItem = {
@@ -125,7 +126,7 @@ export function Sidebar({
                 aria-current={isActive ? "page" : undefined}
                 className={`
                   flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center text-xs
-                  leading-tight transition-colors
+                  leading-tight transition-colors active:scale-95
                   lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:py-2.5 lg:text-sm lg:font-medium
                   ${
                     isActive
@@ -134,7 +135,10 @@ export function Sidebar({
                   }
                 `}
               >
-                <Icon className="h-5 w-5 shrink-0" />
+                <span className="relative shrink-0">
+                  <Icon className="h-5 w-5" />
+                  <LinkPendingIndicator className="absolute -top-1 -right-1 h-2.5 w-2.5 text-primary" />
+                </span>
                 <span className="min-w-0 truncate lg:hidden">{mobileLabel ?? label}</span>
                 <span className="hidden lg:inline">{label}</span>
               </Link>
