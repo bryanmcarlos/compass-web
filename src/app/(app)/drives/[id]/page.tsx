@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Lock, ShieldAlert, Settings, CheckSquare, PenLine } from "lucide-react";
+import { ArrowLeft, ShieldAlert, Settings, CheckSquare, PenLine } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
-import { RegisterDriveForm } from "@/components/club/RegisterDriveForm";
-import { UnregisterButton } from "@/components/club/UnregisterButton";
+import { DriveRegistrationProvider } from "@/components/club/DriveRegistrationContext";
+import { RegistrationSection } from "@/components/club/RegistrationSection";
 import { CopyRosterButton } from "@/components/club/CopyRosterButton";
 import { BroadcastNoticeModal } from "@/components/club/BroadcastNoticeModal";
 import { DriveQuickActionButtons } from "@/components/club/DriveQuickActionButtons";
@@ -441,6 +441,12 @@ export default async function DriveDetailPage({
         </div>
       )}
 
+      <DriveRegistrationProvider
+        initialDriverCount={driverSlotCount}
+        initialRegistration={myRegistration}
+        initialStatus={drive.status}
+        initialRegistrationClosed={drive.registration_closed}
+      >
       <DriveHero
         driveId={drive.id}
         driveIdCode={drive.drive_id_code}
@@ -498,77 +504,18 @@ export default async function DriveDetailPage({
         />
       )}
 
-      {drive.status !== "Scheduled" || drive.registration_closed ? (
-        <section className="rounded-2xl border border-sand bg-sand-light px-5 py-4 text-center text-sm text-charcoal-light/80">
-          {drive.status !== "Scheduled"
-            ? `Registration is closed — this drive is marked ${drive.status}.`
-            : "Registration for this drive is closed."}
-        </section>
-      ) : myRegistration ? (
-        <section className="flex flex-col items-center gap-4 rounded-2xl border border-forest/30 bg-forest/10 px-5 py-5 text-center">
-          <span className="flex items-center gap-2 text-sm font-medium text-forest-dark">
-            <CheckSquare className="h-4 w-4 shrink-0" />
-            You&apos;re registered for this drive as {myRegistration.role}.
-          </span>
-          <UnregisterButton driveId={drive.id} />
-        </section>
-      ) : userRank === null ? (
-        <section className="flex flex-col items-center gap-3 rounded-2xl border border-sand bg-off-white px-5 py-6 text-center shadow-sm">
-          <button
-            type="button"
-            disabled
-            className="flex cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-sand-dark/40 px-4 py-2.5 text-sm font-semibold text-charcoal-light/60"
-          >
-            <Lock className="h-4 w-4" />
-            Register for Drive
-          </button>
-          <p className="text-sm text-charcoal-light/80">
-            <Link href="/login" className="font-semibold text-forest hover:underline">
-              Sign in
-            </Link>{" "}
-            to register for this drive.
-          </p>
-        </section>
-      ) : userRank !== 0 && userRank < drive.target_rank ? (
-        <section className="flex flex-col items-center gap-2 rounded-2xl border border-sand bg-off-white px-5 py-6 text-center shadow-sm">
-          <button
-            type="button"
-            disabled
-            className="flex cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-sand-dark/40 px-4 py-2.5 text-sm font-semibold text-charcoal-light/60"
-          >
-            <Lock className="h-4 w-4" />
-            Register for Drive
-          </button>
-          <p className="max-w-sm text-sm text-charcoal-light/80">
-            Locked: Required Rank {requiredRank?.title ?? drive.target_rank}. Your current rank
-            is {userRankTitle ?? userRank}.
-          </p>
-        </section>
-      ) : availableRoles.length === 0 ? (
-        <section className="flex flex-col items-center gap-2 rounded-2xl border border-sand bg-off-white px-5 py-6 text-center shadow-sm">
-          <button
-            type="button"
-            disabled
-            className="flex cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-sand-dark/40 px-4 py-2.5 text-sm font-semibold text-charcoal-light/60"
-          >
-            <Lock className="h-4 w-4" />
-            Register for Drive
-          </button>
-          <p className="max-w-sm text-sm text-charcoal-light/80">
-            Your rank ({userRankTitle ?? userRank}) doesn&apos;t have an
-            available role on this drive.
-          </p>
-        </section>
-      ) : (
-        <RegisterDriveForm
-          driveId={drive.id}
-          availableRoles={availableRoles}
-          hasCamp={drive.has_camp}
-          profileComplete={Boolean(myMobileNumber) && Boolean(myCarDetails)}
-          initialMobileNumber={myMobileNumber}
-          initialCarDetails={myCarDetails}
-        />
-      )}
+      <RegistrationSection
+        driveId={drive.id}
+        targetRank={drive.target_rank}
+        requiredRankTitle={requiredRank?.title}
+        userRank={userRank}
+        userRankTitle={userRankTitle}
+        availableRoles={availableRoles}
+        hasCamp={drive.has_camp}
+        profileComplete={Boolean(myMobileNumber) && Boolean(myCarDetails)}
+        initialMobileNumber={myMobileNumber}
+        initialCarDetails={myCarDetails}
+      />
 
       {isMarshal && (
         <section className="flex flex-col gap-4 rounded-2xl border border-forest/30 bg-forest/5 p-5 shadow-sm sm:p-6">
@@ -605,6 +552,7 @@ export default async function DriveDetailPage({
           </div>
         </section>
       )}
+      </DriveRegistrationProvider>
     </div>
   );
 }

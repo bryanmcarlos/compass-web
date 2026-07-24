@@ -3,10 +3,12 @@
 import { useState, useTransition } from "react";
 import { LogOut, LoaderCircle, CircleAlert } from "lucide-react";
 import { unregisterFromDrive } from "@/app/(app)/drives/[id]/actions";
+import { useDriveRegistration } from "@/components/club/DriveRegistrationContext";
 
 export function UnregisterButton({ driveId }: { driveId: string }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const driveRegistration = useDriveRegistration();
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -16,6 +18,9 @@ export function UnregisterButton({ driveId }: { driveId: string }) {
         onClick={() => {
           setError(null);
           startTransition(async () => {
+            // Called synchronously at the top of the transition, before the
+            // await — same reasoning as RegisterDriveForm's registerAction.
+            driveRegistration?.optimisticallyUnregister();
             const result = await unregisterFromDrive(driveId);
             if (result.status === "error") {
               setError(result.message);

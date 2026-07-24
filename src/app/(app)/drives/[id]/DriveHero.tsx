@@ -1,7 +1,10 @@
+"use client";
+
 import { Calendar, Clock, MapPin, ExternalLink, Users } from "lucide-react";
 import { StatusIndicator, type DriveStatus } from "@/components/club/DriveBadges";
 import { RankBadge } from "@/components/club/RankBadge";
 import { LikeButton } from "@/components/club/LikeButton";
+import { useDriveRegistration } from "@/components/club/DriveRegistrationContext";
 import { rankNameFromLevel } from "@/lib/constants";
 import { formatDate, formatTime, formatConvoyStatus } from "@/lib/format";
 import { toggleDriveReaction } from "../actions";
@@ -41,6 +44,14 @@ export function DriveHero({
   likeCount: number;
   viewerLiked: boolean;
 }) {
+  // Falls back to the server-fetched props when rendered without a
+  // DriveRegistrationProvider above it (keeps this component safe to reuse
+  // elsewhere) — otherwise reflects register/unregister/status-change
+  // instantly instead of waiting for the page to revalidate.
+  const context = useDriveRegistration();
+  const effectiveStatus = context?.state.status ?? status;
+  const effectiveRegisteredDrivers = context?.state.driverCount ?? registeredDrivers;
+
   return (
     <section className="overflow-hidden rounded-2xl border border-sand bg-off-white shadow-sm">
       <div className="relative h-48 w-full sm:h-64">
@@ -72,7 +83,7 @@ export function DriveHero({
           </h1>
           <div className="flex flex-wrap items-center gap-2">
             <StatusIndicator
-              status={status}
+              status={effectiveStatus}
               className="w-fit rounded-full bg-charcoal/40 px-2 py-0.5 text-xs font-medium backdrop-blur-sm"
             />
             <LikeButton
@@ -141,7 +152,7 @@ export function DriveHero({
           <span className="min-w-0 text-sm">
             <span className="block text-xs text-charcoal-light/60">Convoy Status</span>
             <span className="block truncate font-medium text-charcoal">
-              {formatConvoyStatus(registeredDrivers, maxDrivers)}
+              {formatConvoyStatus(effectiveRegisteredDrivers, maxDrivers)}
             </span>
           </span>
         </div>

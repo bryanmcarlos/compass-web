@@ -231,7 +231,10 @@ export const COMPASS_RANKS: Record<0 | 1 | 2 | 3 | 4 | 5, RankCurriculum> = {
       "Intro to INT", // Mandatory transition drive, taken after R1 & R2
     ],
     gatedFinalMustSkill: "Intro to INT",
-    toolsRequired: ["GPS", "Offroad Lights"],
+    // Equipment verification is deliberately Newbie-only (see
+    // COMPASS_RANKS[1].toolsRequired) — no toolsRequired here, since the
+    // equipment section on /profile and the promotion gate in
+    // profile/actions.ts are both driven directly off this field per rank.
     challenges: [
       "R1: Catch the Flag — buddy-system challenge, unlocked after all required drives/must-skills; mention your buddy's name in your challenge post",
       "R2: Maze — individual challenge, unlocked after all required drives/must-skills",

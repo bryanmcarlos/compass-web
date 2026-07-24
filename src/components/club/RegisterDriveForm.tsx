@@ -18,6 +18,7 @@ import {
   type RegisterDriveState,
 } from "@/app/(app)/drives/[id]/actions";
 import { updateProfile, type UpdateProfileState } from "@/app/(app)/profile/actions";
+import { useDriveRegistration } from "@/components/club/DriveRegistrationContext";
 import type { RegistrationRole } from "@/lib/driveRoles";
 
 const initialState: RegisterDriveState = { status: "idle", message: null };
@@ -48,13 +49,27 @@ export function RegisterDriveForm({
   initialMobileNumber: string | null;
   initialCarDetails: string | null;
 }) {
-  const [state, formAction, pending] = useActionState(
-    registerForDrive,
-    initialState,
-  );
+  const driveRegistration = useDriveRegistration();
   const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [role, setRole] = useState<RegistrationRole>(availableRoles[0]);
   const [joiningCamp, setJoiningCamp] = useState(false);
+
+  // Calling the optimistic update synchronously at the top of the action
+  // passed to useActionState — not in a separate manual startTransition —
+  // is the documented pattern: the form action itself already runs inside
+  // a transition, and revalidatePath (already called by registerForDrive)
+  // resolves as part of that same transition in the App Router, so the
+  // optimistic value hands off to the real, server-confirmed one instead
+  // of flashing back to stale data.
+  async function registerAction(
+    prevState: RegisterDriveState,
+    formData: FormData,
+  ): Promise<RegisterDriveState> {
+    driveRegistration?.optimisticallyRegister(role);
+    return registerForDrive(prevState, formData);
+  }
+
+  const [state, formAction, pending] = useActionState(registerAction, initialState);
 
   const isDone = state.status === "success";
 

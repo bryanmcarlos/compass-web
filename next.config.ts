@@ -18,6 +18,18 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: "11mb",
     },
+    // Every page here is dynamically rendered (Supabase reads, not fetch()
+    // calls Next's data cache can see) — the Router Cache's default
+    // dynamic stale time is 0, so navigating away and back re-fetches from
+    // scratch every time even within the same session. This gives the
+    // client-side Router Cache a real stale-while-revalidate window: a
+    // page visited in the last 30s renders instantly from cache while
+    // Next quietly refetches behind it, matching how a static route
+    // already behaves by default (staleTimes.static, unchanged here).
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
   },
   images: {
     remotePatterns: supabaseHostname
