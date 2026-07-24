@@ -8,8 +8,9 @@ import { Tabs } from "@/components/club/Tabs";
 import { ArchiveDriveList, type ArchiveDrive } from "./ArchiveDriveList";
 import { SwipeToDeleteRow } from "@/components/club/SwipeToDeleteRow";
 import { formatDate, formatTime, formatConvoyStatus } from "@/lib/format";
-import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
-import { countsAsDriverSlot, getAvailableRoles } from "@/lib/driveRoles";
+import { CLUB_CONFIG, COMPASS_RANKS, rankNameFromLevel } from "@/lib/constants";
+import { countsAsDriverSlot, getAvailableRoles, isGatedFinalDrive } from "@/lib/driveRoles";
+import { checkGatedFinalSkillEligible } from "./[id]/actions";
 
 const DRIVES_TABS = [
   { key: "upcoming", label: "Upcoming" },
@@ -36,6 +37,7 @@ type UpcomingDrive = {
   is_all_levels: boolean;
   max_drivers: number;
   exam_type: string | null;
+  must_skills_covered: string[] | null;
 };
 
 type CompletedDrive = {
@@ -102,6 +104,7 @@ function UpcomingCard({
   userRank,
   registeredDrivers,
   isRegistered,
+  gatedFinalSkillEligible,
 }: {
   drive: UpcomingDrive;
   userRank: number | null;
@@ -110,6 +113,11 @@ function UpcomingCard({
    * rank eligibility, and takes priority over it: someone already signed up
    * shouldn't see "Eligible — tap to register" as if they hadn't. */
   isRegistered: boolean;
+  /** Precomputed once per page (not per card) — whether the viewer has
+   * cleared their own rank's exams/must-skills/drives, i.e. is actually
+   * allowed onto a drive covering their rank's gated final must-skill.
+   * Irrelevant (and true by default) for any card that isn't one. */
+  gatedFinalSkillEligible: boolean;
 }) {
   // A Member (rank 0) isn't floor-gated by target_rank like a ranked member
   // — they're eligible display-wise for All Levels or a Newbie-only drive
@@ -130,6 +138,7 @@ function UpcomingCard({
     (userRank === 0
       ? !(drive.is_all_levels || (drive.allowed_ranks.length === 1 && drive.allowed_ranks[0] === "1"))
       : userRank < drive.target_rank ||
+        (isGatedFinalDrive(drive.must_skills_covered, userRank) && !gatedFinalSkillEligible) ||
         getAvailableRoles({
           currentRank: userRank,
           isMit: false,
@@ -290,6 +299,20 @@ export default async function DrivesPage({
     isSuperUser = profile?.is_admin ?? false;
   }
 
+  // Computed once for the whole page (not per card) — only worth the query
+  // at all for a rank that actually has a gated final must-skill today
+  // (Newbie, Rookie); every other rank's cards just use the `true` default,
+  // since isGatedFinalDrive itself already returns false for them anyway.
+  let gatedFinalSkillEligible = true;
+  if (
+    user &&
+    userRank !== null &&
+    userRank !== 0 &&
+    COMPASS_RANKS[userRank as 1 | 2 | 3 | 4 | 5]?.gatedFinalMustSkill
+  ) {
+    gatedFinalSkillEligible = await checkGatedFinalSkillEligible(supabase, user.id, userRank);
+  }
+
   // Always run (cheap, count-only) so tab labels are correct before ever
   // switching tabs.
   const [{ count: upcomingCount }, { count: archiveCount }] = await Promise.all([
@@ -318,7 +341,7 @@ export default async function DrivesPage({
     const { data, error: fetchError } = await supabase
       .from("drives")
       .select(
-        "id, drive_id_code, title, drive_date, drive_start_time, location, meeting_point_name, target_rank, allowed_ranks, is_all_levels, max_drivers, exam_type",
+        "id, drive_id_code, title, drive_date, drive_start_time, location, meeting_point_name, target_rank, allowed_ranks, is_all_levels, max_drivers, exam_type, must_skills_covered",
       )
       .eq("status", "Scheduled")
       .order("drive_date", { ascending: true })
@@ -437,6 +460,7 @@ export default async function DrivesPage({
                   userRank={userRank}
                   registeredDrivers={upcomingCounts.get(drive.id) ?? 0}
                   isRegistered={registeredDriveIds.has(drive.id)}
+                  gatedFinalSkillEligible={gatedFinalSkillEligible}
                 />
               </SwipeToDeleteRow>
             ))}

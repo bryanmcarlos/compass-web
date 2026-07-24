@@ -28,8 +28,13 @@ import type { TripReportCardData } from "@/components/club/TripReportCard";
 import type { PendingReport } from "@/components/club/PendingReportsReview";
 import { CLUB_CONFIG, rankNameFromLevel } from "@/lib/constants";
 import { formatDate, formatTime } from "@/lib/format";
-import { getAvailableRoles, countsAsDriverSlot, type RegistrationRole } from "@/lib/driveRoles";
-import { checkMemberEligibleForDrive } from "./actions";
+import {
+  getAvailableRoles,
+  countsAsDriverSlot,
+  isGatedFinalDrive,
+  type RegistrationRole,
+} from "@/lib/driveRoles";
+import { checkMemberEligibleForDrive, checkGatedFinalSkillEligible } from "./actions";
 import { getAppSettings } from "@/lib/appSettings";
 import { SITE_URL } from "@/lib/siteUrl";
 import type { DriveStatus } from "@/components/club/DriveBadges";
@@ -402,6 +407,16 @@ export default async function DriveDetailPage({
   // Member (rank 0) bypasses getAvailableRoles entirely — see
   // checkMemberEligibleForDrive's own doc comment for why this is a policy
   // overlay rather than part of the rank hierarchy that function encodes.
+  // A drive covering this member's own rank's gated final must-skill (e.g.
+  // Intro to INT for a Rookie) only opens up once the rest of that rank's
+  // curriculum — including any exams and their trip reports — is actually
+  // done; see checkGatedFinalSkillEligible's own doc comment.
+  const gatedFinalDriveBlocked =
+    userRank !== null &&
+    userRank !== 0 &&
+    isGatedFinalDrive(drive.must_skills_covered, userRank) &&
+    !(await checkGatedFinalSkillEligible(supabase, user!.id, userRank));
+
   const availableRoles =
     userRank === 0
       ? (await checkMemberEligibleForDrive(
@@ -413,15 +428,17 @@ export default async function DriveDetailPage({
           ))
         ? (["Driver"] as RegistrationRole[])
         : []
-      : getAvailableRoles({
-          currentRank: userRank ?? -1,
-          isMit: userIsMit,
-          targetRank: drive.target_rank,
-          allowedRanks: drive.allowed_ranks.map(Number),
-          isAllLevels: drive.is_all_levels,
-          hasSupervisingMarshal,
-          examType: drive.exam_type,
-        });
+      : gatedFinalDriveBlocked
+        ? []
+        : getAvailableRoles({
+            currentRank: userRank ?? -1,
+            isMit: userIsMit,
+            targetRank: drive.target_rank,
+            allowedRanks: drive.allowed_ranks.map(Number),
+            isAllLevels: drive.is_all_levels,
+            hasSupervisingMarshal,
+            examType: drive.exam_type,
+          });
 
   // Empty role groups are omitted entirely (no dangling "SUPPORTS" header
   // with nothing under it), and only actual registrants appear — the open

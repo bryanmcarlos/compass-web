@@ -2,8 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
-import { getAvailableRoles, type RegistrationRole } from "@/lib/driveRoles";
-import { rankNameFromLevel } from "@/lib/constants";
+import { getAvailableRoles, isGatedFinalDrive, type RegistrationRole } from "@/lib/driveRoles";
+import { rankNameFromLevel, COMPASS_RANKS } from "@/lib/constants";
+
+// Which single-pass exams gate a rank's own "final drive" — only Rookie has
+// both a gatedFinalMustSkill (Intro to INT) and exams (R1/R2) to check;
+// Newbie's gated skill (Intro to ROK) has no exam prerequisite, and
+// Intermediate/Advanced have no gatedFinalMustSkill at all today.
+const GATED_RANK_EXAM_TYPES: Record<number, string[]> = {
+  2: ["R1_CATCH_THE_FLAG", "R2_MAZE"],
+};
 
 export type RegisterDriveState = {
   status: "idle" | "error" | "success";
@@ -53,6 +61,72 @@ export async function checkMemberEligibleForDrive(
   });
 }
 
+/** Re-checks whether `userId` (a member of `currentRank`) has actually
+ * earned the right to register for a drive covering their rank's gated
+ * final must-skill (see isGatedFinalDrive) — the required drive count and
+ * every *regular* must-skill, plus (for a rank with exams) each exam
+ * passed AND its own approved trip report filed. Without this, a member
+ * could get credited for their rank's transition drive before finishing
+ * the rest of the curriculum — which is exactly the bug this closes:
+ * registering for an "Intro to INT" drive before R1/R2 were even done. */
+export async function checkGatedFinalSkillEligible(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  currentRank: number,
+): Promise<boolean> {
+  const curriculum = COMPASS_RANKS[currentRank as 1 | 2 | 3 | 4 | 5];
+  const gatedSkill = curriculum?.gatedFinalMustSkill;
+  if (!gatedSkill) return true;
+
+  const requiredDrives = curriculum.requiredDrives ?? 0;
+  const regularMustSkills = (curriculum.mustSkills ?? []).filter((s) => s !== gatedSkill);
+
+  const { data: reportRows } = await supabase
+    .from("trip_reports")
+    .select("drive_id, drive:drives(must_skills_covered)")
+    .eq("author_id", userId)
+    .eq("is_approved", true)
+    .overrideTypes<
+      { drive_id: string | null; drive: { must_skills_covered: string[] | null } | null }[],
+      { merge: false }
+    >();
+
+  const unlockedSkills = new Set<string>();
+  const reportedDriveIds = new Set<string>();
+  for (const row of reportRows ?? []) {
+    for (const skill of row.drive?.must_skills_covered ?? []) unlockedSkills.add(skill);
+    if (row.drive_id) reportedDriveIds.add(row.drive_id);
+  }
+
+  const meetsDrives = (reportRows?.length ?? 0) >= requiredDrives;
+  const meetsMustSkills = regularMustSkills.every((s) => unlockedSkills.has(s));
+  if (!meetsDrives || !meetsMustSkills) return false;
+
+  const examTypes = GATED_RANK_EXAM_TYPES[currentRank] ?? [];
+  if (examTypes.length === 0) return true;
+
+  const { data: examRows } = await supabase
+    .from("exam_submissions")
+    .select("exam_type, status, exam_drive_id, created_at")
+    .eq("user_id", userId)
+    .in("exam_type", examTypes)
+    .order("created_at", { ascending: false });
+
+  const latestByType = new Map<string, { status: string; examDriveId: string | null }>();
+  for (const row of examRows ?? []) {
+    if (!latestByType.has(row.exam_type)) {
+      latestByType.set(row.exam_type, { status: row.status, examDriveId: row.exam_drive_id });
+    }
+  }
+
+  return examTypes.every((type) => {
+    const entry = latestByType.get(type);
+    return Boolean(
+      entry?.status === "passed" && entry.examDriveId && reportedDriveIds.has(entry.examDriveId),
+    );
+  });
+}
+
 export async function registerForDrive(
   _prevState: RegisterDriveState,
   formData: FormData,
@@ -99,7 +173,7 @@ export async function registerForDrive(
       supabase
         .from("drives")
         .select(
-          "target_rank, max_drivers, has_camp, allowed_ranks, is_all_levels, status, registration_closed, exam_type",
+          "target_rank, max_drivers, has_camp, allowed_ranks, is_all_levels, status, registration_closed, exam_type, must_skills_covered",
         )
         .eq("id", driveId)
         .single(),
@@ -128,6 +202,21 @@ export async function registerForDrive(
     return {
       status: "error",
       message: "Your rank doesn't qualify for this drive yet.",
+    };
+  }
+
+  // A drive covering this member's own rank's gated final must-skill (e.g.
+  // Intro to INT for a Rookie) is the transition drive for finishing that
+  // rank entirely — only reachable once the rest of the curriculum,
+  // including any exams and their trip reports, is actually done.
+  if (
+    isGatedFinalDrive(drive.must_skills_covered, profile.current_rank) &&
+    !(await checkGatedFinalSkillEligible(supabase, user.id, profile.current_rank))
+  ) {
+    return {
+      status: "error",
+      message:
+        "This drive is the final step for your rank — finish your required drives, must-skills, and exams (with their trip reports) first.",
     };
   }
 

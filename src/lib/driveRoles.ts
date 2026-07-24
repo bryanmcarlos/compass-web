@@ -10,7 +10,7 @@
  * assume that's already true and don't re-derive it.
  */
 
-import { rankNameFromLevel } from "@/lib/constants";
+import { rankNameFromLevel, COMPASS_RANKS } from "@/lib/constants";
 
 export type RegistrationRole = "Driver" | "Support" | "Lead";
 
@@ -89,6 +89,21 @@ export function getAvailableRoles({
     default:
       return [];
   }
+}
+
+/** True when this drive covers `currentRank`'s curriculum "gated final
+ * must-skill" (e.g. Intro to INT for a Rookie, Intro to ROK for a Newbie)
+ * — the transition drive that's only supposed to happen after everything
+ * else for that rank, including any exams, is already done. Pure/sync
+ * flag only; the actual eligibility re-check (drives, must-skills, and any
+ * exams passed+reported) is async — see checkGatedFinalSkillEligible in
+ * drives/[id]/actions.ts. */
+export function isGatedFinalDrive(
+  mustSkillsCovered: string[] | null | undefined,
+  currentRank: number,
+): boolean {
+  const gatedSkill = COMPASS_RANKS[currentRank as 1 | 2 | 3 | 4 | 5]?.gatedFinalMustSkill;
+  return Boolean(gatedSkill && (mustSkillsCovered ?? []).includes(gatedSkill));
 }
 
 /** A registration counts toward a drive's active "driver slot" numerator
