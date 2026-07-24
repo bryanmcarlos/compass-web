@@ -306,3 +306,13 @@ export const MANDATORY_EQUIPMENT: string[] = COMPASS_RANKS[1].toolsRequired ?? [
  * constant export breaks its whole export contract (confirmed: Next's
  * build fails with "module has no exports at all" if you try). */
 export const SOLO_GPS_DRIVES_REQUIRED = 3;
+
+/** Cutover for the "a trip report only counts toward drive-progress if this
+ * member also has a matching drive_registrations row" rule — applies only to
+ * trip reports submitted from this point forward. Existing members' already-
+ * approved reports (many carried over from the old forum's trip report
+ * history, which predates this app's own registration tracking and has no
+ * corresponding drive_registrations rows at all) keep counting exactly as
+ * they always have; nothing about historical progress is touched. Only new
+ * reports approved after this date are held to the stricter rule. */
+export const DRIVE_COUNT_REGISTRATION_GATE_START = "2026-07-24T00:00:00Z";

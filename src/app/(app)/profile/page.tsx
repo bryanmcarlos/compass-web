@@ -8,7 +8,7 @@ import { RankBadge } from "@/components/club/RankBadge";
 import { RequestPromotionButton } from "@/components/club/RequestPromotionButton";
 import { EditProfileForm } from "@/components/club/EditProfileForm";
 import { SignOutButton } from "@/components/club/SignOutButton";
-import { CLUB_CONFIG, COMPASS_RANKS } from "@/lib/constants";
+import { CLUB_CONFIG, COMPASS_RANKS, DRIVE_COUNT_REGISTRATION_GATE_START } from "@/lib/constants";
 
 export default async function ProfilePage() {
   const supabase = await createClient();
@@ -37,17 +37,35 @@ export default async function ProfilePage() {
     );
   }
 
-  const { data: approvedReportsData, error: countError } = await supabase
-    .from("trip_reports")
-    .select("id, drive:drives(must_skills_covered)")
-    .eq("author_id", profile.id)
-    .eq("is_approved", true)
-    .overrideTypes<
-      { id: string; drive: { must_skills_covered: string[] | null } | null }[],
-      { merge: false }
-    >();
+  const [{ data: approvedReportsData, error: countError }, { data: registrationRows }] =
+    await Promise.all([
+      supabase
+        .from("trip_reports")
+        .select("id, drive_id, created_at, drive:drives(must_skills_covered)")
+        .eq("author_id", profile.id)
+        .eq("is_approved", true)
+        .overrideTypes<
+          {
+            id: string;
+            drive_id: string | null;
+            created_at: string;
+            drive: { must_skills_covered: string[] | null } | null;
+          }[],
+          { merge: false }
+        >(),
+      supabase.from("drive_registrations").select("drive_id").eq("user_id", profile.id),
+    ]);
 
-  const approvedReports = approvedReportsData ?? [];
+  // A trip report submitted on/after DRIVE_COUNT_REGISTRATION_GATE_START
+  // only counts toward progress if this member also has a matching
+  // drive_registrations row for that same drive — see that constant's
+  // comment for why older reports are grandfathered in unconditionally.
+  const registeredDriveIds = new Set((registrationRows ?? []).map((r) => r.drive_id));
+  const approvedReports = (approvedReportsData ?? []).filter(
+    (r) =>
+      r.created_at < DRIVE_COUNT_REGISTRATION_GATE_START ||
+      (r.drive_id !== null && registeredDriveIds.has(r.drive_id)),
+  );
   const approvedDrives = approvedReports.length;
 
   // Each approved trip report unlocks whatever curriculum skills its drive

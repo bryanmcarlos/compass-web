@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 import { ErrorState } from "@/components/club/StateMessage";
 import { ExamSubmissionForm, type ExamStatus, type BuddyOption } from "@/components/club/ExamSubmissionForm";
 import { SoloGpsDriveForm } from "@/components/club/SoloGpsDriveForm";
-import { COMPASS_RANKS } from "@/lib/constants";
+import { COMPASS_RANKS, DRIVE_COUNT_REGISTRATION_GATE_START } from "@/lib/constants";
 
 const RANK_TITLES: Record<number, string> = { 2: "Rookie", 3: "Intermediate" };
 const REQUIRED_LEAD_DRIVES = 3;
@@ -35,38 +35,64 @@ export default async function ExamsPage() {
     redirect("/profile");
   }
 
-  const [{ data: submissions, error }, { data: memberRows }, { data: reportRows }, { count: leadDriveCount }] =
-    await Promise.all([
-      supabase
-        .from("exam_submissions")
-        .select("exam_type, status")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .overrideTypes<{ exam_type: string; status: ExamStatus }[], { merge: false }>(),
-      // Only R1 needs a buddy — fetched regardless of rank for simplicity,
-      // unused (and harmless) when rank 3 renders I1/I2/I3 instead.
-      supabase
-        .from("profiles")
-        .select("id, username, full_name")
-        .eq("is_disabled", false)
-        .neq("id", user.id)
-        .order("username"),
-      // Same signal used everywhere else this app tracks progression —
-      // approved trip reports and the must-skills their drives covered.
-      supabase
-        .from("trip_reports")
-        .select("drive:drives(must_skills_covered)")
-        .eq("author_id", user.id)
-        .eq("is_approved", true)
-        .overrideTypes<{ drive: { must_skills_covered: string[] | null } | null }[], { merge: false }>(),
-      // "3 Intro Lead Drives" needs no submission UI at all — it's just
-      // however many times this member has already registered as Lead.
-      supabase
-        .from("drive_registrations")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .eq("role", "Lead"),
-    ]);
+  const [
+    { data: submissions, error },
+    { data: memberRows },
+    { data: reportRows },
+    { count: leadDriveCount },
+    { data: registrationRows },
+  ] = await Promise.all([
+    supabase
+      .from("exam_submissions")
+      .select("exam_type, status")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .overrideTypes<{ exam_type: string; status: ExamStatus }[], { merge: false }>(),
+    // Only R1 needs a buddy — fetched regardless of rank for simplicity,
+    // unused (and harmless) when rank 3 renders I1/I2/I3 instead.
+    supabase
+      .from("profiles")
+      .select("id, username, full_name")
+      .eq("is_disabled", false)
+      .neq("id", user.id)
+      .order("username"),
+    // Same signal used everywhere else this app tracks progression —
+    // approved trip reports and the must-skills their drives covered.
+    supabase
+      .from("trip_reports")
+      .select("drive_id, created_at, drive:drives(must_skills_covered)")
+      .eq("author_id", user.id)
+      .eq("is_approved", true)
+      .overrideTypes<
+        {
+          drive_id: string | null;
+          created_at: string;
+          drive: { must_skills_covered: string[] | null } | null;
+        }[],
+        { merge: false }
+      >(),
+    // "3 Intro Lead Drives" needs no submission UI at all — it's just
+    // however many times this member has already registered as Lead.
+    supabase
+      .from("drive_registrations")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("role", "Lead"),
+    // Used to filter reportRows below — see the comment there.
+    supabase.from("drive_registrations").select("drive_id").eq("user_id", user.id),
+  ]);
+
+  // A trip report submitted on/after DRIVE_COUNT_REGISTRATION_GATE_START
+  // only counts toward the drive requirement if this member also has a
+  // matching drive_registrations row for that same drive — see that
+  // constant's comment for why older reports are grandfathered in
+  // unconditionally.
+  const registeredDriveIds = new Set((registrationRows ?? []).map((r) => r.drive_id));
+  const qualifyingReportRows = (reportRows ?? []).filter(
+    (r) =>
+      r.created_at < DRIVE_COUNT_REGISTRATION_GATE_START ||
+      (r.drive_id !== null && registeredDriveIds.has(r.drive_id)),
+  );
 
   const latestByType = new Map<string, ExamStatus>();
   for (const row of submissions ?? []) {
@@ -89,9 +115,9 @@ export default async function ExamsPage() {
   // drive itself only unlocks *after* passing the challenges below.
   const curriculum = COMPASS_RANKS[rank as 2 | 3];
   const requiredDrives = curriculum.requiredDrives ?? 0;
-  const approvedDrives = (reportRows ?? []).length;
+  const approvedDrives = qualifyingReportRows.length;
   const unlockedSkills = new Set<string>();
-  for (const row of reportRows ?? []) {
+  for (const row of qualifyingReportRows) {
     for (const skill of row.drive?.must_skills_covered ?? []) {
       unlockedSkills.add(skill);
     }

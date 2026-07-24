@@ -254,6 +254,22 @@ export async function unregisterFromDrive(
     };
   }
 
+  const [{ data: drive }, { data: existingReport }] = await Promise.all([
+    supabase.from("drives").select("status").eq("id", driveId).single(),
+    supabase.from("trip_reports").select("id").eq("drive_id", driveId).limit(1).maybeSingle(),
+  ]);
+
+  // Once a drive is marked Completed, or a trip report has already been
+  // filed for it, the roster is part of that drive's historical record —
+  // unregistering at that point would silently rewrite who was actually
+  // there, so it's blocked rather than allowed and only caught later.
+  if (drive?.status === "Completed" || existingReport) {
+    return {
+      status: "error",
+      message: "This drive has already been completed and reported on, so you can no longer unregister from it.",
+    };
+  }
+
   const { error: deleteError } = await supabase
     .from("drive_registrations")
     .delete()
